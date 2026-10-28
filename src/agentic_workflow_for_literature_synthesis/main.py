@@ -1,9 +1,13 @@
 from fastapi import FastAPI
 
+from agentic_workflow_for_literature_synthesis.core.config import get_settings
+
+settings = get_settings()
+
 app = FastAPI(
-    title="Agentic Workflow for Literature Synthesis",
+    title=settings.app_name,
     description="Backend API for an agentic scientific literature synthesis system.",
-    version="0.1.0",
+    version=settings.app_version,
 )
 
 
@@ -13,5 +17,5 @@ async def health_check() -> dict[str, str]:
     return {
         "status": "ok",
         "service": "literature-synthesis-api",
-        "version": "0.1.0",
+        "version": settings.app_version,
     }
