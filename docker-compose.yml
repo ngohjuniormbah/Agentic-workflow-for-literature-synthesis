@@ -1,0 +1,82 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: synthesis
+      POSTGRES_USER: synthesis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your environment}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synthesis -d synthesis"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  api:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?Set APP_SECRET_KEY in your environment}
+      DATABASE_URL: postgresql+psycopg://synthesis:${POSTGRES_PASSWORD}@db:5432/synthesis
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      OPENALEX_EMAIL: ${OPENALEX_EMAIL:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_HTTP_REFERER: ${OPENROUTER_HTTP_REFERER:-}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-Synthesis Literature Review}
+      OPENROUTER_QWEN_MODEL_ID: ${OPENROUTER_QWEN_MODEL_ID:-}
+      OPENROUTER_KIMI_MODEL_ID: ${OPENROUTER_KIMI_MODEL_ID:-}
+      OPENROUTER_DEEPSEEK_MODEL_ID: ${OPENROUTER_DEEPSEEK_MODEL_ID:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL_ID: ${OPENAI_MODEL_ID:-gpt-4.1-mini}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-90}
+    depends_on:
+      db:
+        condition: service_healthy
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    environment:
+      APP_ENV: production
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?Set APP_SECRET_KEY in your environment}
+      DATABASE_URL: postgresql+psycopg://synthesis:${POSTGRES_PASSWORD}@db:5432/synthesis
+      OPENALEX_EMAIL: ${OPENALEX_EMAIL:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_HTTP_REFERER: ${OPENROUTER_HTTP_REFERER:-}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-Synthesis Literature Review}
+      OPENROUTER_QWEN_MODEL_ID: ${OPENROUTER_QWEN_MODEL_ID:-}
+      OPENROUTER_KIMI_MODEL_ID: ${OPENROUTER_KIMI_MODEL_ID:-}
+      OPENROUTER_DEEPSEEK_MODEL_ID: ${OPENROUTER_DEEPSEEK_MODEL_ID:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL_ID: ${OPENAI_MODEL_ID:-gpt-4.1-mini}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-90}
+    depends_on:
+      api:
+        condition: service_healthy
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+        API_INTERNAL_URL: http://api:8000
+    restart: unless-stopped
+    environment:
+      API_INTERNAL_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports: ["127.0.0.1:3000:3000"]
+volumes:
+  postgres_data:
