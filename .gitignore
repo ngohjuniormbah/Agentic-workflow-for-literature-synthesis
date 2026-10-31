@@ -10,3 +10,8 @@ node_modules/
 .next/
 coverage/
 .DS_Store
+*.tsbuildinfo
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
