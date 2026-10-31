@@ -1,0 +1,1 @@
+"""Synthesis FastAPI application package."""
