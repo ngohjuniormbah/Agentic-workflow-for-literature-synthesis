@@ -6,12 +6,12 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import Artifact, Paper, Project, Run
+from app.models import Artifact, Event, Paper, Project, Run
 from app.schemas import RunCreate
 from app import workflow
 from app import worker
 from app import main
-from app.schemas import ReviewAction
+from app.schemas import ReviewAction, ReviewRatings
 
 
 class WorkflowExperimentTests(unittest.TestCase):
@@ -37,6 +37,18 @@ class WorkflowExperimentTests(unittest.TestCase):
         self.assertEqual(spec.random_seed, 17)
         with self.assertRaises(ValueError):
             RunCreate(models={}, random_seed=2**32)
+        with self.assertRaises(ValueError):
+            ReviewAction(action="approve")
+
+    def test_synthesis_replaces_citations_to_sources_outside_the_screened_corpus(self):
+        valid_id = str(uuid.uuid4())
+        unverified_id = str(uuid.uuid4())
+        draft = f"Supported statement [{valid_id}]. Unsupported reference [{unverified_id}]."
+        sanitized, citations, rejected = workflow.sanitize_citations(draft, [valid_id])
+        self.assertIn(f"[{valid_id}]", sanitized)
+        self.assertIn("[UNVERIFIED CITATION]", sanitized)
+        self.assertEqual(citations, [valid_id])
+        self.assertEqual(rejected, [unverified_id])
 
     def test_api_queues_run_and_review_decisions_resume_from_checkpoint(self):
         payload = RunCreate(models={"extraction": "openai", "organization": "openai", "synthesis": "openai"}, source_mode="saved_corpus", condition="every_stage", replicate="R1", temperature=0)
@@ -45,12 +57,14 @@ class WorkflowExperimentTests(unittest.TestCase):
         self.assertEqual(response["status"], "queued")
 
         self.run.status = "awaiting_review"
-        artifact = Artifact(id=str(uuid.uuid4()), run_id=self.run.id, stage="search", version=1, content={"count": 1}, status="pending_review", model="Saved corpus")
+        artifact = Artifact(id=str(uuid.uuid4()), run_id=self.run.id, stage="search", version=1, content={"count": 1, "source_snapshot": [{"paper_id": self.paper.id}]}, status="pending_review", model="Saved corpus")
         self.session.add(artifact)
         self.session.commit()
-        review = main.review(self.run.id, artifact.id, ReviewAction(action="approve", note=""), self.session)
+        review = main.review(self.run.id, artifact.id, ReviewAction(action="approve", note="", ratings=ReviewRatings(relevance=4, evidence_accuracy=4, coverage=4, traceability=4)), self.session)
         self.assertEqual(review["status"], "queued")
         self.assertEqual(review["settings"]["resume_from_stage"], "search")
+        event = self.session.scalar(select(Event).where(Event.run_id == self.run.id, Event.type == "review_approved"))
+        self.assertEqual(event.details["ratings"]["evidence_accuracy"], 4)
 
     def test_local_run_freezes_source_snapshot_and_does_not_pull_later_uploads(self):
         search = workflow.execute_stage(self.session, self.project, self.run, "search")
@@ -102,6 +116,34 @@ class WorkflowExperimentTests(unittest.TestCase):
             worker.recover_interrupted_runs()
         self.assertEqual(self.run.status, "queued")
         self.assertEqual(self.run.settings["resume_from_stage"], "search")
+
+    def test_search_review_saves_reviewer_screened_sources_for_extraction(self):
+        other_id = str(uuid.uuid4())
+        candidates = [self.paper.id, other_id]
+        self.run.status = "awaiting_review"
+        self.run.settings = {**self.run.settings, "source_paper_ids": candidates}
+        search = Artifact(
+            id=str(uuid.uuid4()), run_id=self.run.id, stage="search", version=1,
+            content={
+                "count": 2,
+                "source_snapshot_hash": "all-candidate-hash",
+                "source_snapshot": [
+                    {"paper_id": self.paper.id, "title": "Frozen paper", "text_sha256": "one"},
+                    {"paper_id": other_id, "title": "Exclude this", "text_sha256": "two"},
+                ],
+            },
+            status="pending_review", model="Saved corpus",
+        )
+        self.session.add(search)
+        self.session.commit()
+
+        result = main.review(self.run.id, search.id, ReviewAction(action="approve", source_paper_ids=[self.paper.id], ratings=ReviewRatings(relevance=5, evidence_accuracy=4, coverage=3, traceability=5)), self.session)
+
+        self.assertEqual(result["settings"]["source_paper_ids"], [self.paper.id])
+        self.assertEqual(result["settings"]["resume_from_stage"], "search")
+        reviewed = next(a for a in result["artifacts"] if a["id"] == search.id)
+        self.assertEqual(reviewed["content"]["included_paper_ids"], [self.paper.id])
+        self.assertEqual(reviewed["content"]["excluded_paper_ids"], [other_id])
 
 
 if __name__ == "__main__":
