@@ -1,4 +1,4 @@
-import uuid, logging, io, os, json
+import uuid, logging, io, os, json, hashlib
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.responses import Response
@@ -130,13 +130,29 @@ def review(run_id:str,artifact_id:str,body:ReviewAction,db:Session=Depends(get_d
     if r.status!="awaiting_review": raise HTTPException(409,"Run is not currently waiting for review")
     a.reviewer_note=body.note
     if body.action=="approve":
-        a.status="approved"; r.settings={**r.settings,"resume_from_stage":a.stage}; record(db,p.id,r.id,"review_approved",f"{a.stage.title()} v{a.version} approved",{"artifact_id":a.id,"note":body.note})
+        screening_details={}
+        if a.stage=="search":
+            snapshot=a.content.get("source_snapshot",[])
+            candidates=[item.get("paper_id") for item in snapshot if isinstance(item,dict) and isinstance(item.get("paper_id"),str)]
+            selected=list(dict.fromkeys(body.source_paper_ids if body.source_paper_ids is not None else candidates))
+            if not selected: raise HTTPException(422,"Keep at least one source before approving Search.")
+            if any(source_id not in candidates for source_id in selected): raise HTTPException(422,"A selected source was not produced by this Search artifact.")
+            included=set(selected)
+            selected_snapshot=[item for item in snapshot if item.get("paper_id") in included]
+            selected_hash=hashlib.sha256(json.dumps(selected_snapshot,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")).hexdigest()
+            all_candidate_hash=a.content.get("source_snapshot_hash","")
+            a.content={**a.content,"search_result_snapshot_hash":all_candidate_hash,"included_paper_ids":selected,"excluded_paper_ids":[source_id for source_id in candidates if source_id not in included],"screened_source_snapshot_hash":selected_hash}
+            r.settings={**r.settings,"source_paper_ids":selected,"source_snapshot_hash":selected_hash,"resume_from_stage":a.stage}
+            screening_details={"included_paper_ids":selected,"excluded_paper_ids":[source_id for source_id in candidates if source_id not in included]}
+        else:
+            r.settings={**r.settings,"resume_from_stage":a.stage}
+        a.status="approved"; record(db,p.id,r.id,"review_approved",f"{a.stage.title()} v{a.version} approved",{"artifact_id":a.id,"note":body.note,"ratings":body.ratings.model_dump(),**screening_details})
     else:
         a.status="revision_requested"; stage=a.stage
         if body.action=="return": stage=STAGES[max(0,STAGES.index(a.stage)-1)]
         resume_from=STAGES[STAGES.index(stage)-1] if STAGES.index(stage)>0 else None
         r.settings={**r.settings,"review_note":body.note,"resume_from_stage":resume_from}
-        record(db,p.id,r.id,"review_revision_requested",f"Revision requested from {stage.title()}",{"artifact_id":a.id,"action":body.action,"note":body.note,"retry_stage":stage})
+        record(db,p.id,r.id,"review_revision_requested",f"Revision requested from {stage.title()}",{"artifact_id":a.id,"action":body.action,"note":body.note,"retry_stage":stage,"ratings":body.ratings.model_dump()})
     r.status="queued"; record(db,p.id,r.id,"run_queued","Run queued after reviewer decision",{"resume_from_stage":r.settings.get("resume_from_stage")}); db.commit()
     db.refresh(r)
     return {**run_view(r),"artifacts":[artifact_view(x) for x in db.scalars(select(Artifact).where(Artifact.run_id==r.id).order_by(Artifact.created_at)).all()]}
