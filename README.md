@@ -2,6 +2,8 @@
 
 Synthesis is a local-first research platform for studying human review at Search → Extraction → Organization → Synthesis checkpoints. Runs persist as versioned artifacts, capture the source set and experimental settings, pause for reviewer decisions, and export as JSONL for analysis.
 
+The stages have separate responsibilities: Search retrieves and deduplicates candidate records; Extraction identifies claims with verbatim evidence quotes and methods/limitations; Organization groups the reviewed claims and records agreements, disagreements, and gaps; Synthesis writes a cited draft from those claims and themes. A researcher can screen papers individually at Search, inspect all extracted claims and themes at their review gates, add feedback, and approve, retry, or return a stage. Approval records four explicit 1–5 reviewer ratings (relevance, evidence accuracy, coverage, and traceability) in the event log for later analysis.
+
 ## Start locally with OpenAI
 
 Requirements: Python 3.11+, Node.js 20+, npm. OpenAI API requests require internet access and are billed separately from a ChatGPT subscription. You may run the application locally while calling OpenAI remotely.
@@ -19,7 +21,7 @@ The database-backed worker claims queued runs independently of HTTP requests. It
 
 1. Create a project and choose a human-review policy. For the treatment condition in which a person reviews every agent, choose **Review every stage**.
 2. Open **Saved papers** and upload text-based PDFs to create the fixed corpus. Scanned PDFs require OCR first. PDFs are extracted locally and stored in the configured database.
-3. In **Experiment run settings**, enter a study label, replicate ID, and random seed. Select **Saved corpus (local / fixed)**. This mode does not call OpenAlex. It records the frozen source IDs and metadata with the Search artifact; papers uploaded later are excluded from that run.
+3. In **Experiment run settings**, enter a study label, replicate ID, and random seed. Select **Saved corpus (local / fixed)**. This mode does not call OpenAlex. At Search review, include/exclude each paper; only included source IDs flow to Extraction. The run records the screened source snapshot and hash; papers uploaded later are excluded.
 4. Select OpenAI for each AI stage. Search is deterministic corpus selection; extraction, organization, and synthesis call the configured model.
 5. At each configured review gate, inspect the artifact and approve, request revision, or return to the previous checkpoint. Reviewer notes and decisions are appended to the event history.
 6. Use **Export run records (JSONL)** to download project metadata, run configuration, source snapshot, artifacts, model identifiers, prompt hashes, and provider usage fields when returned by the provider.
