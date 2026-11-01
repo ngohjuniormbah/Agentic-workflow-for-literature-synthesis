@@ -52,6 +52,14 @@ def artifact_payload(db, run, stage):
     a=db.scalar(select(Artifact).where(Artifact.run_id==run.id,Artifact.stage==stage).order_by(Artifact.version.desc()))
     return {k:v for k,v in a.content.items() if k!="_telemetry"} if a else {}
 
+def sanitize_citations(draft, valid_paper_ids):
+    valid=set(valid_paper_ids)
+    cited=list(dict.fromkeys(re.findall(r"\[([0-9a-f-]{36})\]",draft)))
+    accepted=[paper_id for paper_id in cited if paper_id in valid]
+    rejected=[paper_id for paper_id in cited if paper_id not in valid]
+    sanitized=re.sub(r"\[([0-9a-f-]{36})\]",lambda match: match.group(0) if match.group(1) in valid else "[UNVERIFIED CITATION]",draft)
+    return sanitized,accepted,rejected
+
 def execute_stage(db: Session, project: Project, run: Run, stage: str):
     provider=stage_provider(run,stage)
     usage={}
@@ -75,6 +83,7 @@ def execute_stage(db: Session, project: Project, run: Run, stage: str):
         compact=[{k:v for k,v in source_dict(p).items() if k in ("id","title","authors","year","doi","abstract","full_text")} for p in sources[:run.settings.get("max_papers",25)]]
         compact=[{**p,"abstract":p.get("abstract","")[:12000],"full_text":p.get("full_text","")[:12000]} for p in compact]
         content,model,usage=json_answer(provider,"Research question: "+project.question+"\nSources: "+str(compact)+("\nReviewer feedback: "+run.settings.get("review_note","") if run.settings.get("review_note") else ""),"Extract evidence-grounded claims. Do not infer beyond supplied paper text or abstracts. Return JSON: {claims:[{claim, paper_id, quote, method, limitation, confidence}]} . Every claim must cite an input paper_id and a verbatim supporting quote from the supplied paper text or abstract.",temperature=run.settings.get("temperature",0.0))
+        if not isinstance(content.get("claims"),list): raise WorkflowError("Extraction response must contain a claims array. Retry this stage.")
         by_id={p.id:p for p in sources}
         accepted=[]
         for claim in content.get("claims",[]):
@@ -94,12 +103,13 @@ def execute_stage(db: Session, project: Project, run: Run, stage: str):
         extraction=artifact_payload(db,run,"extraction")
         if not extraction: raise WorkflowError("Approve or create an extraction artifact first.")
         content,model,usage=json_answer(provider,"Question: "+project.question+"\nEvidence: "+str(extraction)+("\nReviewer feedback: "+run.settings.get("review_note","") if run.settings.get("review_note") else ""),"Group only provided claims into themes. Preserve claim IDs/paper_id, note agreements, disagreements, methods and evidence gaps. Return JSON: {themes:[{name,summary,claim_indices,agreements,disagreements,gaps}]}.",temperature=run.settings.get("temperature",0.0))
+        if not isinstance(content.get("themes"),list): raise WorkflowError("Organization response must contain a themes array. Retry this stage.")
     elif stage=="synthesis":
         org=artifact_payload(db,run,"organization"); extraction=artifact_payload(db,run,"extraction")
         if not org or not extraction: raise WorkflowError("Extraction and organization artifacts are required.")
         content,model,usage=complete(provider,"Question: "+project.question+"\nScope: "+project.scope+"\nThemes: "+str(org)+"\nEvidence claims: "+str(extraction)+"\nWrite a balanced literature synthesis. Use inline citations [paper_id]. Only make claims supported by supplied evidence. Include an evidence limitations section."+("\nReviewer feedback: "+run.settings.get("review_note","") if run.settings.get("review_note") else ""),"You write rigorous scientific literature syntheses. Never invent sources, facts, or citations. Keep citations attached to the claims they support.",temperature=run.settings.get("temperature",0.0))
-        content={"draft":content,"citations":list(dict.fromkeys(re.findall(r"\[([0-9a-f-]{36})\]",content))),"word_count":len(content.split())}
-        valid={p.id for p in sources}; content["citations"]=[x for x in content["citations"] if x in valid]
+        valid={p.id for p in sources}; draft,citations,rejected=sanitize_citations(content,valid)
+        content={"draft":draft,"citations":citations,"rejected_citations":rejected,"rejected_citation_count":len(rejected),"word_count":len(draft.split())}
     else: raise WorkflowError("Unknown workflow stage.")
     latest=db.scalar(select(Artifact).where(Artifact.run_id==run.id,Artifact.stage==stage).order_by(Artifact.version.desc()))
     version=(latest.version+1) if latest else 1
