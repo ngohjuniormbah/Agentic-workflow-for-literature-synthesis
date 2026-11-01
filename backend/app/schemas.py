@@ -18,6 +18,14 @@ class RunCreate(BaseModel):
     replicate: str = Field(default="1", min_length=1, max_length=80)
     random_seed: int = Field(default=42, ge=0, le=2**32 - 1)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+class ReviewRatings(BaseModel):
+    relevance: int = Field(ge=1, le=5)
+    evidence_accuracy: int = Field(ge=1, le=5)
+    coverage: int = Field(ge=1, le=5)
+    traceability: int = Field(ge=1, le=5)
+
 class ReviewAction(BaseModel):
     action: Literal["approve", "retry", "return"]
     note: str = Field(default="", max_length=5000)
+    source_paper_ids: list[str] | None = Field(default=None, max_length=25)
+    ratings: ReviewRatings
