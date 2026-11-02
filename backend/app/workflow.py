@@ -1,5 +1,6 @@
 import uuid, logging, re
 import hashlib, json
+import time
 from datetime import datetime, timezone
 import httpx
 from sqlalchemy.orm import Session
@@ -17,6 +18,14 @@ def record(db, project_id, run_id, kind, message, details=None):
 
 def needs_review(policy, stage):
     return {"every_stage":STAGES,"search_and_final":["search","synthesis"],"final_only":["synthesis"],"after_extraction":["extraction"]}[policy].__contains__(stage)
+
+EXPERIMENT_CONDITION_POLICIES = {
+    "full_audit": "every_stage",
+    # Target source screening and the final deliverable; retries are reviewer initiated.
+    "targeted_retry": "search_and_final",
+    "endpoint_oversight": "final_only",
+    "midpoint_gating": "after_extraction",
+}
 
 def stage_provider(run, stage):
     return run.models.get(stage) or {"search":"openai","extraction":"qwen","organization":"deepseek","synthesis":"openai"}[stage]
@@ -61,6 +70,7 @@ def sanitize_citations(draft, valid_paper_ids):
     return sanitized,accepted,rejected
 
 def execute_stage(db: Session, project: Project, run: Run, stage: str):
+    stage_started = time.perf_counter()
     provider=stage_provider(run,stage)
     usage={}
     selected_ids=run.settings.get("source_paper_ids", [])
@@ -113,10 +123,13 @@ def execute_stage(db: Session, project: Project, run: Run, stage: str):
     else: raise WorkflowError("Unknown workflow stage.")
     latest=db.scalar(select(Artifact).where(Artifact.run_id==run.id,Artifact.stage==stage).order_by(Artifact.version.desc()))
     version=(latest.version+1) if latest else 1
-    art=Artifact(id=str(uuid.uuid4()),run_id=run.id,stage=stage,version=version,content=content,status="pending_review" if needs_review(project.review_policy,stage) else "approved",model=model)
+    review_policy=run.settings.get("review_policy", project.review_policy)
+    art=Artifact(id=str(uuid.uuid4()),run_id=run.id,stage=stage,version=version,content=content,status="pending_review" if needs_review(review_policy,stage) else "approved",model=model)
+    telemetry={"stage_duration_ms":round((time.perf_counter()-stage_started)*1000,3),"stage":"search" if stage=="search" else stage}
     if stage in ("extraction", "organization", "synthesis"):
-        content={**content,"_telemetry":{"usage":usage.get("usage",{}),"prompt_sha256":usage.get("prompt_sha256"),"provider":provider,"model":model,"prompt_version":"1.0","temperature":run.settings.get("temperature",0.0)}}
-        art.content=content
+        telemetry.update({"usage":usage.get("usage",{}),"prompt_sha256":usage.get("prompt_sha256"),"provider":provider,"model":model,"prompt_version":"1.0","temperature":run.settings.get("temperature",0.0),"request_duration_ms":usage.get("request_duration_ms")})
+    content={**content,"_telemetry":telemetry}
+    art.content=content
     db.add(art); run.current_stage=stage
     if art.status=="pending_review": run.status="awaiting_review"
     else: run.status="running"

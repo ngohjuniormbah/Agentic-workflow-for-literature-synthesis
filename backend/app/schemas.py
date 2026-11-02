@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 ReviewPolicy = Literal["every_stage", "search_and_final", "final_only", "after_extraction"]
+ExperimentCondition = Literal["full_audit", "targeted_retry", "endpoint_oversight", "midpoint_gating"]
 class ProjectCreate(BaseModel):
     title: str = Field(min_length=2, max_length=240)
     question: str = Field(min_length=10, max_length=5000)
@@ -14,7 +15,8 @@ class RunCreate(BaseModel):
     from_stage: str | None = None
     source_mode: Literal["openalex", "saved_corpus"] = "openalex"
     experiment_label: str = Field(default="", max_length=240)
-    condition: str = Field(default="every_stage", min_length=2, max_length=120)
+    # This value selects the actual workflow review gates and is also exported with the run.
+    condition: ExperimentCondition = "full_audit"
     replicate: str = Field(default="1", min_length=1, max_length=80)
     random_seed: int = Field(default=42, ge=0, le=2**32 - 1)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)

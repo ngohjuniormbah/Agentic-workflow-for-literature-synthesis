@@ -1,8 +1,8 @@
 # Synthesis: human-supervised literature review
 
-Synthesis is a local-first research platform for studying human review at Search → Extraction → Organization → Synthesis checkpoints. Runs persist as versioned artifacts, capture the source set and experimental settings, pause for reviewer decisions, and export as JSONL for analysis.
+Synthesis is a local-first research platform for studying human review at Search → Extraction → Organization → Synthesis checkpoints. Runs persist as versioned artifacts, capture the source set and experimental settings, pause at scenario-specific review gates, and export as JSONL for analysis.
 
-The stages have separate responsibilities: Search retrieves and deduplicates candidate records; Extraction identifies claims with verbatim evidence quotes and methods/limitations; Organization groups the reviewed claims and records agreements, disagreements, and gaps; Synthesis writes a cited draft from those claims and themes. A researcher can screen papers individually at Search, inspect all extracted claims and themes at their review gates, add feedback, and approve, retry, or return a stage. Approval records four explicit 1–5 reviewer ratings (relevance, evidence accuracy, coverage, and traceability) in the event log for later analysis.
+The stages have separate responsibilities: Search retrieves and deduplicates candidate records; Extraction identifies claims with verbatim evidence quotes and methods/limitations; Organization groups the reviewed claims and records agreements, disagreements, and gaps; Synthesis writes a cited draft from those claims and themes. Search uses OpenAlex or the saved corpus; the selected LLM is used by Extraction, Organization, and Synthesis. At a Search review gate, the researcher can include or exclude each candidate. The decision and screened source snapshot are saved before the next stage, and only included source IDs flow to Extraction. At review gates, the researcher can inspect the artifact, add feedback, and approve, retry, or return a stage. Review decisions record four 1–5 ratings (relevance, evidence accuracy, coverage, and traceability) in the event log.
 
 ## Start locally with OpenAI
 
@@ -17,16 +17,28 @@ Requirements: Python 3.11+, Node.js 20+, npm. OpenAI API requests require intern
 
 The database-backed worker claims queued runs independently of HTTP requests. It resumes committed workflow checkpoints after a worker restart; calls interrupted before artifact commit may be retried and billed again. SQLite is suitable for a single-machine pilot. Use PostgreSQL for concurrent workers or a shared deployment.
 
-## Run a local-corpus experiment
+## Run the four-scenario experiment
 
-1. Create a project and choose a human-review policy. For the treatment condition in which a person reviews every agent, choose **Review every stage**.
-2. Open **Saved papers** and upload text-based PDFs to create the fixed corpus. Scanned PDFs require OCR first. PDFs are extracted locally and stored in the configured database.
-3. In **Experiment run settings**, enter a study label, replicate ID, and random seed. Select **Saved corpus (local / fixed)**. This mode does not call OpenAlex. At Search review, include/exclude each paper; only included source IDs flow to Extraction. The run records the screened source snapshot and hash; papers uploaded later are excluded.
-4. Select OpenAI for each AI stage. Search is deterministic corpus selection; extraction, organization, and synthesis call the configured model.
-5. At each configured review gate, inspect the artifact and approve, request revision, or return to the previous checkpoint. Reviewer notes and decisions are appended to the event history.
-6. Use **Export run records (JSONL)** to download project metadata, run configuration, source snapshot, artifacts, model identifiers, prompt hashes, and provider usage fields when returned by the provider.
+Each run selects one of four conditions. All four workflow stages execute in every condition:
 
-For a live-search run, select **Search OpenAlex (internet)**. OpenAlex results can change over time, so use Saved corpus mode when matching a source set across experimental conditions. Separate runs do not share mutable artifact state. Temperature is sent to the model endpoint; the recorded replicate seed is metadata and is not sent because seed support varies by model/provider. Temperature zero does not guarantee identical results across models or provider revisions. The protocol marker is currently `1.0`; change it when prompts or workflow behavior change and keep protocol versions consistent within a study.
+| Condition | Human review gates | Operational definition |
+| --- | --- | --- |
+| `full_audit` | Search, Extraction, Organization, Synthesis | Review and rate each stage before it proceeds. Search screening is saved; only included papers reach Extraction. |
+| `targeted_retry` | Search, Synthesis | Review and screen the Search results, then review the final synthesis. A retry is requested by the human when needed. |
+| `endpoint_oversight` | Synthesis | The workflow runs through Search, Extraction, and Organization without review gates; the human reviews the final synthesis. |
+| `midpoint_gating` | Extraction | Search runs, then a human reviews the extracted claims before Organization and Synthesis continue. |
+
+For a four-model comparison, assign the same provider to Extraction, Organization, and Synthesis within each model condition. Search remains the same retrieval method across models and does not call an LLM. The `condition` field selects the actual gate behavior; it is not merely a free-text label. Each run stores the scenario, mapped review policy, model assignments, replicate ID, source snapshot, and protocol version.
+
+The 4 × 4 design is **16 model-scenario configurations**. Replicates are additional runs: for example, four replicates per configuration require 64 complete runs. Keep replicate count, corpus, research question, model settings, and reviewer procedure in your written protocol before collecting results.
+
+1. Create one project with the final research question and scope.
+2. Build and freeze one corpus for comparison. Prefer text-based PDFs uploaded to **Saved papers**; scanned PDFs require OCR first. PDFs are extracted locally. Keep this corpus unchanged across model and scenario runs. Use **Saved corpus (local / fixed)** for every configuration so live search changes do not confound the comparison.
+3. In each run, enter the study label, scenario, replicate ID, seed, and temperature. For each model condition, choose that same provider for Extraction, Organization, and Synthesis. Test its connection first.
+4. At the configured gates, use the same inclusion rules and review rubric. For Search gates, apply a prewritten screening rule and retain the same final source set in every condition. Record reviewer notes and do not treat technical pilots as confirmatory runs.
+5. Export **Run records (JSONL)** after each run. It contains run settings, scenario, source snapshots and hashes, artifacts, prompt hashes, reviewer decisions/ratings, stage and provider-request durations, token usage, and provider-reported cost when returned. Provider cost is not guaranteed for every API; do not interpret a missing cost field as zero.
+
+Separate runs do not share mutable artifact state. Temperature is sent to the model endpoint; the recorded replicate seed is metadata and is not sent because seed support varies by model/provider. Temperature zero does not guarantee identical results across models or provider revisions. Protocol version `1.1` records the scenario-gated workflow behavior; keep protocol versions consistent within a study.
 
 ## OpenRouter models
 

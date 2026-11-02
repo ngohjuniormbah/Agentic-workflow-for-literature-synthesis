@@ -1,6 +1,7 @@
 import json
 import re
 import hashlib
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -109,6 +110,7 @@ def complete(provider_name: str, prompt: str, system: str, *, max_tokens: int | 
     }
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
+    request_started = time.perf_counter()
     try:
         with httpx.Client(
             timeout=httpx.Timeout(settings.llm_timeout_seconds, connect=10),
@@ -150,7 +152,7 @@ def complete(provider_name: str, prompt: str, system: str, *, max_tokens: int | 
         raise ProviderError(f"{provider.gateway} returned an empty response for {provider_name}.", 502)
     actual_model = data.get("model") or provider.model_id
     usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
-    return message.strip(), actual_model, {"usage": {k: usage[k] for k in ("prompt_tokens", "completion_tokens", "total_tokens", "cost") if k in usage}, "prompt_sha256": hashlib.sha256((system + "\0" + prompt).encode("utf-8")).hexdigest()}
+    return message.strip(), actual_model, {"usage": {k: usage[k] for k in ("prompt_tokens", "completion_tokens", "total_tokens", "cost") if k in usage}, "prompt_sha256": hashlib.sha256((system + "\0" + prompt).encode("utf-8")).hexdigest(), "request_duration_ms": round((time.perf_counter() - request_started) * 1000, 3)}
 
 
 def json_answer(provider: str, prompt: str, system: str, *, temperature: float = 0.0) -> tuple[dict, str, dict[str, Any]]:

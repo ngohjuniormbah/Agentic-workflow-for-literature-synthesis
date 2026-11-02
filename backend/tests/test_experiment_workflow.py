@@ -12,6 +12,7 @@ from app import workflow
 from app import worker
 from app import main
 from app.schemas import ReviewAction, ReviewRatings
+from app.workflow import EXPERIMENT_CONDITION_POLICIES
 
 
 class WorkflowExperimentTests(unittest.TestCase):
@@ -33,12 +34,57 @@ class WorkflowExperimentTests(unittest.TestCase):
         self.engine.dispose()
 
     def test_run_metadata_is_validated_and_bounded(self):
-        spec = RunCreate(models={"extraction": "openai", "organization": "openai", "synthesis": "openai"}, source_mode="saved_corpus", experiment_label="pilot", condition="every_stage", replicate="R1", random_seed=17)
+        spec = RunCreate(models={"extraction": "openai", "organization": "openai", "synthesis": "openai"}, source_mode="saved_corpus", experiment_label="pilot", condition="full_audit", replicate="R1", random_seed=17)
         self.assertEqual(spec.random_seed, 17)
         with self.assertRaises(ValueError):
             RunCreate(models={}, random_seed=2**32)
         with self.assertRaises(ValueError):
             ReviewAction(action="approve")
+
+    def test_all_four_experiment_conditions_select_the_documented_review_gates(self):
+        expected = {
+            "full_audit": ("every_stage", ["search", "extraction", "organization", "synthesis"]),
+            "targeted_retry": ("search_and_final", ["search", "synthesis"]),
+            "endpoint_oversight": ("final_only", ["synthesis"]),
+            "midpoint_gating": ("after_extraction", ["extraction"]),
+        }
+        for condition, (policy, stages) in expected.items():
+            self.assertEqual(EXPERIMENT_CONDITION_POLICIES[condition], policy)
+            self.assertEqual([stage for stage in workflow.STAGES if workflow.needs_review(policy, stage)], stages)
+        with self.assertRaises(ValueError):
+            RunCreate(condition="unregistered_condition")
+
+    def test_search_artifact_waits_for_human_only_in_search_review_conditions(self):
+        expected_review = {"full_audit": True, "targeted_retry": True, "endpoint_oversight": False, "midpoint_gating": False}
+        for condition, policy in EXPERIMENT_CONDITION_POLICIES.items():
+            run = Run(
+                id=str(uuid.uuid4()), project_id=self.project.id,
+                models={"extraction": "openai", "organization": "openai", "synthesis": "openai"},
+                settings={"source_mode": "saved_corpus", "max_papers": 25, "condition": condition, "review_policy": policy},
+                status="running",
+            )
+            self.session.add(run)
+            self.session.commit()
+            artifact = workflow.execute_stage(self.session, self.project, run, "search")
+            expected_status = "pending_review" if expected_review[condition] else "approved"
+            self.assertEqual(artifact.status, expected_status)
+            self.assertEqual(run.settings["source_paper_ids"], [self.paper.id])
+
+    def test_api_freezes_condition_and_review_policy_per_run(self):
+        models = {"extraction": "openai", "organization": "openai", "synthesis": "openai"}
+        for condition, policy in EXPERIMENT_CONDITION_POLICIES.items():
+            payload = RunCreate(models=models, source_mode="saved_corpus", condition=condition)
+            with patch.object(main, "provider_config", return_value=object()):
+                created = main.create_run(self.project.id, payload, self.session)
+            self.assertEqual(created["settings"]["condition"], condition)
+            self.assertEqual(created["settings"]["scenario"], condition)
+            self.assertEqual(created["settings"]["review_policy"], policy)
+            self.assertIn("search uses OpenAlex", created["settings"]["model_scope"])
+
+        mixed_models = {**models, "organization": "qwen"}
+        with self.assertRaises(main.HTTPException) as error:
+            main.create_run(self.project.id, RunCreate(models=mixed_models, source_mode="saved_corpus"), self.session)
+        self.assertEqual(error.exception.status_code, 422)
 
     def test_synthesis_replaces_citations_to_sources_outside_the_screened_corpus(self):
         valid_id = str(uuid.uuid4())
@@ -51,7 +97,7 @@ class WorkflowExperimentTests(unittest.TestCase):
         self.assertEqual(rejected, [unverified_id])
 
     def test_api_queues_run_and_review_decisions_resume_from_checkpoint(self):
-        payload = RunCreate(models={"extraction": "openai", "organization": "openai", "synthesis": "openai"}, source_mode="saved_corpus", condition="every_stage", replicate="R1", temperature=0)
+        payload = RunCreate(models={"extraction": "openai", "organization": "openai", "synthesis": "openai"}, source_mode="saved_corpus", condition="full_audit", replicate="R1", temperature=0)
         with patch.object(main, "provider_config", return_value=object()):
             response = main.create_run(self.project.id, payload, self.session)
         self.assertEqual(response["status"], "queued")
