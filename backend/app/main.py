@@ -8,7 +8,7 @@ from sqlalchemy import select, desc
 from .db import Base, engine, get_db
 from .models import Project, Run, Paper, Artifact, Event
 from .schemas import ProjectCreate, ProjectUpdate, RunCreate, ReviewAction
-from .workflow import advance, execute_stage, record, WorkflowError
+from .workflow import advance, execute_stage, record, WorkflowError, EXPERIMENT_CONDITION_POLICIES
 from .agents import AI_STAGES, STAGES, complete, provider_catalog, provider_config, ProviderError
 from .config import settings
 
@@ -110,13 +110,17 @@ def create_run(project_id:str,body:RunCreate,db:Session=Depends(get_db)):
         raise HTTPException(422,"Upload at least one paper before starting a saved-corpus run.")
     missing=sorted(set(AI_STAGES)-set(body.models))
     if missing: raise HTTPException(422,f"Choose a model for every AI stage: {', '.join(missing)}")
+    assigned_models={body.models[stage] for stage in AI_STAGES}
+    if len(assigned_models)!=1:
+        raise HTTPException(422,"For a model-scenario experiment, assign the same model to Extraction, Organization, and Synthesis.")
     for stage,provider in body.models.items():
         if stage not in AI_STAGES or provider not in provider_catalog(): raise HTTPException(422,f"Invalid model assignment for {stage}")
         try:
             provider_config(provider)
         except ProviderError as exc:
             raise HTTPException(exc.status_code,str(exc)) from exc
-    r=Run(id=str(uuid.uuid4()),project_id=p.id,models=body.models,settings={"max_papers":body.max_papers,"source_mode":body.source_mode,"experiment_label":body.experiment_label,"condition":body.condition,"replicate":body.replicate,"random_seed":body.random_seed,"temperature":body.temperature,"protocol_version":"1.0","review_policy":p.review_policy},status="queued"); db.add(r); db.flush(); record(db,p.id,r.id,"run_queued","Workflow run queued",{"review_policy":p.review_policy,"models":body.models,"experiment_label":body.experiment_label,"condition":body.condition,"replicate":body.replicate,"source_mode":body.source_mode}); db.commit(); db.refresh(r)
+    review_policy=EXPERIMENT_CONDITION_POLICIES[body.condition]
+    r=Run(id=str(uuid.uuid4()),project_id=p.id,models=body.models,settings={"max_papers":body.max_papers,"source_mode":body.source_mode,"experiment_label":body.experiment_label,"condition":body.condition,"scenario":body.condition,"replicate":body.replicate,"random_seed":body.random_seed,"temperature":body.temperature,"protocol_version":"1.1","review_policy":review_policy,"model_scope":"extraction,organization,synthesis; search uses OpenAlex or the fixed saved corpus"},status="queued"); db.add(r); db.flush(); record(db,p.id,r.id,"run_queued","Workflow run queued",{"review_policy":review_policy,"scenario":body.condition,"models":body.models,"experiment_label":body.experiment_label,"replicate":body.replicate,"source_mode":body.source_mode}); db.commit(); db.refresh(r)
     return {**run_view(r),"artifacts":[]}
 @app.get("/api/v1/runs/{run_id}")
 def get_run(run_id:str,db:Session=Depends(get_db)):
