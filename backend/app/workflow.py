@@ -6,7 +6,7 @@ import httpx
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from .models import Project, Run, Paper, Artifact, Event
-from .agents import STAGES, json_answer, complete
+from .agents import STAGES, AI_STAGES, json_answer, complete
 from .config import settings
 
 log=logging.getLogger("synthesis.workflow")
@@ -78,16 +78,35 @@ def execute_stage(db: Session, project: Project, run: Run, stage: str):
     if stage=="search":
         if run.settings.get("source_mode", "openalex")=="saved_corpus":
             papers=db.scalars(select(Paper).where(Paper.project_id==project.id).order_by(Paper.created_at.desc()).limit(run.settings.get("max_papers",25))).all()
-            model="Saved corpus"
+            retrieval_source="Saved corpus"
         else:
             papers=search_sources(project,run,db)
-            model="OpenAlex search"
+            retrieval_source="OpenAlex"
         if not papers:
             raise WorkflowError("No papers were selected. Add papers to the saved corpus or broaden the OpenAlex search.")
-        snapshot=[{"paper_id":p.id,"doi":p.doi,"title":p.title,"year":p.year,"text_sha256":hashlib.sha256((p.full_text or p.abstract or "").encode("utf-8")).hexdigest()} for p in papers]
-        snapshot_hash=hashlib.sha256(json.dumps(snapshot,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")).hexdigest()
+        ranking_input=[{"paper_id":p.id,"title":p.title,"year":p.year,"abstract":(p.abstract or "")[:1600],"doi":p.doi} for p in papers]
+        ranking,model,usage=json_answer(
+            provider,
+            "Research question: "+project.question+"\nScope: "+project.scope+"\nCandidate papers (rank these; do not discard any): "+json.dumps(ranking_input,ensure_ascii=False),
+            "You are the Search agent in a literature review. Rank every supplied candidate by relevance to the research question using only its title, year, and abstract. Return JSON with ranked_paper_ids (all supplied paper_id values, each exactly once, in relevance order) and relevance_notes (objects with paper_id and a concise reason). Do not invent IDs, facts, or citations. Ranking is advisory; a human will screen the candidate papers.",
+            temperature=run.settings.get("temperature",0.0),
+        )
+        by_id={p.id:p for p in papers}
+        ranked_ids=[]
+        for paper_id in ranking.get("ranked_paper_ids",[]) if isinstance(ranking.get("ranked_paper_ids"),list) else []:
+            if isinstance(paper_id,str) and paper_id in by_id and paper_id not in ranked_ids:
+                ranked_ids.append(paper_id)
+        ranked_ids.extend(p.id for p in papers if p.id not in ranked_ids)
+        notes={}
+        for item in ranking.get("relevance_notes",[]) if isinstance(ranking.get("relevance_notes"),list) else []:
+            if isinstance(item,dict) and item.get("paper_id") in by_id and isinstance(item.get("reason"),str):
+                notes[item["paper_id"]]=item["reason"][:1000]
+        papers=[by_id[paper_id] for paper_id in ranked_ids]
+        snapshot=[{"paper_id":p.id,"rank":index+1,"doi":p.doi,"title":p.title,"year":p.year,"text_sha256":hashlib.sha256((p.full_text or p.abstract or "").encode("utf-8")).hexdigest()} for index,p in enumerate(papers)]
+        canonical_snapshot=sorted(({key:value for key,value in item.items() if key!="rank"} for item in snapshot),key=lambda item:item["paper_id"])
+        snapshot_hash=hashlib.sha256(json.dumps(canonical_snapshot,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")).hexdigest()
         run.settings={**run.settings,"source_paper_ids":[p.id for p in papers],"source_snapshot_hash":snapshot_hash}
-        content={"query":project.question,"source_mode":run.settings.get("source_mode","openalex"),"count":len(papers),"papers":[{k:v for k,v in source_dict(x).items() if k!="full_text"} for x in papers],"provider":model,"source_snapshot":snapshot,"source_snapshot_hash":snapshot_hash}
+        content={"query":project.question,"source_mode":run.settings.get("source_mode","openalex"),"retrieval_source":retrieval_source,"count":len(papers),"papers":[{**{k:v for k,v in source_dict(x).items() if k!="full_text"},"relevance_rank":index+1,"relevance_note":notes.get(x.id,"")} for index,x in enumerate(papers)],"provider":provider,"model":model,"ranked_paper_ids":ranked_ids,"source_snapshot":snapshot,"source_snapshot_hash":snapshot_hash}
     elif stage=="extraction":
         if not sources: raise WorkflowError("No saved papers. Run Search first.")
         compact=[{k:v for k,v in source_dict(p).items() if k in ("id","title","authors","year","doi","abstract","full_text")} for p in sources[:run.settings.get("max_papers",25)]]
@@ -126,8 +145,8 @@ def execute_stage(db: Session, project: Project, run: Run, stage: str):
     review_policy=run.settings.get("review_policy", project.review_policy)
     art=Artifact(id=str(uuid.uuid4()),run_id=run.id,stage=stage,version=version,content=content,status="pending_review" if needs_review(review_policy,stage) else "approved",model=model)
     telemetry={"stage_duration_ms":round((time.perf_counter()-stage_started)*1000,3),"stage":"search" if stage=="search" else stage}
-    if stage in ("extraction", "organization", "synthesis"):
-        telemetry.update({"usage":usage.get("usage",{}),"prompt_sha256":usage.get("prompt_sha256"),"provider":provider,"model":model,"prompt_version":"1.0","temperature":run.settings.get("temperature",0.0),"request_duration_ms":usage.get("request_duration_ms")})
+    if stage in AI_STAGES:
+        telemetry.update({"usage":usage.get("usage",{}),"prompt_sha256":usage.get("prompt_sha256"),"provider":provider,"model":model,"prompt_version":"1.1" if stage=="search" else "1.0","temperature":run.settings.get("temperature",0.0),"request_duration_ms":usage.get("request_duration_ms")})
     content={**content,"_telemetry":telemetry}
     art.content=content
     db.add(art); run.current_stage=stage

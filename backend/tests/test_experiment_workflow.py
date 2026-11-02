@@ -24,7 +24,7 @@ class WorkflowExperimentTests(unittest.TestCase):
         self.session.add(self.project)
         self.paper = Paper(id=str(uuid.uuid4()), project_id=self.project.id, run_id=None, title="Frozen paper", authors=[], year=2024, doi=None, url="", abstract="A sufficiently long verbatim quote supporting the primary result.", full_text="", venue="", citation_count=0)
         self.session.add(self.paper)
-        self.run = Run(id=str(uuid.uuid4()), project_id=self.project.id, models={"extraction": "openai", "organization": "openai", "synthesis": "openai"}, settings={"source_mode": "saved_corpus", "max_papers": 25, "protocol_version": "1.0"}, status="running")
+        self.run = Run(id=str(uuid.uuid4()), project_id=self.project.id, models={"search": "openai", "extraction": "openai", "organization": "openai", "synthesis": "openai"}, settings={"source_mode": "saved_corpus", "max_papers": 25, "protocol_version": "1.0"}, status="running")
         self.session.add(self.run)
         self.session.commit()
 
@@ -34,7 +34,7 @@ class WorkflowExperimentTests(unittest.TestCase):
         self.engine.dispose()
 
     def test_run_metadata_is_validated_and_bounded(self):
-        spec = RunCreate(models={"extraction": "openai", "organization": "openai", "synthesis": "openai"}, source_mode="saved_corpus", experiment_label="pilot", condition="full_audit", replicate="R1", random_seed=17)
+        spec = RunCreate(models={"search": "openai", "extraction": "openai", "organization": "openai", "synthesis": "openai"}, source_mode="saved_corpus", experiment_label="pilot", condition="full_audit", replicate="R1", random_seed=17)
         self.assertEqual(spec.random_seed, 17)
         with self.assertRaises(ValueError):
             RunCreate(models={}, random_seed=2**32)
@@ -59,19 +59,20 @@ class WorkflowExperimentTests(unittest.TestCase):
         for condition, policy in EXPERIMENT_CONDITION_POLICIES.items():
             run = Run(
                 id=str(uuid.uuid4()), project_id=self.project.id,
-                models={"extraction": "openai", "organization": "openai", "synthesis": "openai"},
+                models={"search": "openai", "extraction": "openai", "organization": "openai", "synthesis": "openai"},
                 settings={"source_mode": "saved_corpus", "max_papers": 25, "condition": condition, "review_policy": policy},
                 status="running",
             )
             self.session.add(run)
             self.session.commit()
-            artifact = workflow.execute_stage(self.session, self.project, run, "search")
+            with patch.object(workflow, "json_answer", return_value=({"ranked_paper_ids": [self.paper.id]}, "mock-search-model", {})):
+                artifact = workflow.execute_stage(self.session, self.project, run, "search")
             expected_status = "pending_review" if expected_review[condition] else "approved"
             self.assertEqual(artifact.status, expected_status)
             self.assertEqual(run.settings["source_paper_ids"], [self.paper.id])
 
     def test_api_freezes_condition_and_review_policy_per_run(self):
-        models = {"extraction": "openai", "organization": "openai", "synthesis": "openai"}
+        models = {"search": "openai", "extraction": "openai", "organization": "openai", "synthesis": "openai"}
         for condition, policy in EXPERIMENT_CONDITION_POLICIES.items():
             payload = RunCreate(models=models, source_mode="saved_corpus", condition=condition)
             with patch.object(main, "provider_config", return_value=object()):
@@ -79,7 +80,7 @@ class WorkflowExperimentTests(unittest.TestCase):
             self.assertEqual(created["settings"]["condition"], condition)
             self.assertEqual(created["settings"]["scenario"], condition)
             self.assertEqual(created["settings"]["review_policy"], policy)
-            self.assertIn("search uses OpenAlex", created["settings"]["model_scope"])
+            self.assertIn("search ranking", created["settings"]["model_scope"])
 
         mixed_models = {**models, "organization": "qwen"}
         with self.assertRaises(main.HTTPException) as error:
@@ -97,7 +98,7 @@ class WorkflowExperimentTests(unittest.TestCase):
         self.assertEqual(rejected, [unverified_id])
 
     def test_api_queues_run_and_review_decisions_resume_from_checkpoint(self):
-        payload = RunCreate(models={"extraction": "openai", "organization": "openai", "synthesis": "openai"}, source_mode="saved_corpus", condition="full_audit", replicate="R1", temperature=0)
+        payload = RunCreate(models={"search": "openai", "extraction": "openai", "organization": "openai", "synthesis": "openai"}, source_mode="saved_corpus", condition="full_audit", replicate="R1", temperature=0)
         with patch.object(main, "provider_config", return_value=object()):
             response = main.create_run(self.project.id, payload, self.session)
         self.assertEqual(response["status"], "queued")
@@ -113,9 +114,12 @@ class WorkflowExperimentTests(unittest.TestCase):
         self.assertEqual(event.details["ratings"]["evidence_accuracy"], 4)
 
     def test_local_run_freezes_source_snapshot_and_does_not_pull_later_uploads(self):
-        search = workflow.execute_stage(self.session, self.project, self.run, "search")
+        with patch.object(workflow, "json_answer", return_value=({"ranked_paper_ids": [self.paper.id]}, "openai-search-model", {"usage": {"total_tokens": 4}, "prompt_sha256": "search-hash", "request_duration_ms": 5})):
+            search = workflow.execute_stage(self.session, self.project, self.run, "search")
         self.assertEqual(search.content["source_mode"], "saved_corpus")
         self.assertEqual(search.content["source_snapshot"][0]["paper_id"], self.paper.id)
+        self.assertEqual(search.content["model"], "openai-search-model")
+        self.assertEqual(search.content["_telemetry"]["usage"]["total_tokens"], 4)
 
         later = Paper(id=str(uuid.uuid4()), project_id=self.project.id, run_id=None, title="Uploaded later", authors=[], year=2025, doi=None, url="", abstract="This paper is not part of the experimental snapshot.", full_text="", venue="", citation_count=0)
         self.session.add(later)
@@ -138,10 +142,37 @@ class WorkflowExperimentTests(unittest.TestCase):
 
     def test_openalex_search_is_not_skipped_when_project_has_existing_papers(self):
         self.run.settings = {"source_mode": "openalex", "max_papers": 25}
-        with patch.object(workflow, "search_sources", return_value=[self.paper]) as search_sources:
+        with patch.object(workflow, "search_sources", return_value=[self.paper]) as search_sources, patch.object(workflow, "json_answer", return_value=({"ranked_paper_ids": [self.paper.id]}, "openai-search-model", {})):
             artifact = workflow.execute_stage(self.session, self.project, self.run, "search")
         search_sources.assert_called_once()
-        self.assertEqual(artifact.content["provider"], "OpenAlex search")
+        self.assertEqual(artifact.content["retrieval_source"], "OpenAlex")
+        self.assertEqual(artifact.model, "openai-search-model")
+
+    def test_search_llm_ranking_never_drops_or_invents_candidate_ids(self):
+        second = Paper(id=str(uuid.uuid4()), project_id=self.project.id, run_id=None, title="Second paper", authors=[], year=2023, doi=None, url="", abstract="Another candidate abstract", full_text="", venue="", citation_count=0)
+        self.session.add(second)
+        self.session.commit()
+        self.run.settings = {"source_mode": "saved_corpus", "max_papers": 25}
+        with patch.object(workflow, "json_answer", return_value=({"ranked_paper_ids": [second.id, str(uuid.uuid4()), second.id]}, "ranker", {})):
+            artifact = workflow.execute_stage(self.session, self.project, self.run, "search")
+        result_ids = [paper["id"] for paper in artifact.content["papers"]]
+        self.assertEqual(result_ids, [second.id, self.paper.id])
+        self.assertEqual(set(result_ids), {second.id, self.paper.id})
+
+    def test_candidate_source_snapshot_hash_is_stable_when_model_ranking_changes(self):
+        second = Paper(id=str(uuid.uuid4()), project_id=self.project.id, run_id=None, title="Second paper", authors=[], year=2023, doi=None, url="", abstract="Another candidate abstract", full_text="", venue="", citation_count=0)
+        self.session.add(second)
+        self.session.commit()
+        first_run = Run(id=str(uuid.uuid4()), project_id=self.project.id, models=self.run.models, settings={"source_mode": "saved_corpus", "max_papers": 25}, status="running")
+        second_run = Run(id=str(uuid.uuid4()), project_id=self.project.id, models=self.run.models, settings={"source_mode": "saved_corpus", "max_papers": 25}, status="running")
+        self.session.add_all([first_run, second_run])
+        self.session.commit()
+        with patch.object(workflow, "json_answer", return_value=({"ranked_paper_ids": [self.paper.id, second.id]}, "ranker-a", {})):
+            first = workflow.execute_stage(self.session, self.project, first_run, "search")
+        with patch.object(workflow, "json_answer", return_value=({"ranked_paper_ids": [second.id, self.paper.id]}, "ranker-b", {})):
+            second_result = workflow.execute_stage(self.session, self.project, second_run, "search")
+        self.assertNotEqual(first.content["ranked_paper_ids"], second_result.content["ranked_paper_ids"])
+        self.assertEqual(first.content["source_snapshot_hash"], second_result.content["source_snapshot_hash"])
 
     def test_worker_claims_queued_run_and_preserves_checkpoint(self):
         self.run.status = "queued"

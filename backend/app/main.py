@@ -120,7 +120,7 @@ def create_run(project_id:str,body:RunCreate,db:Session=Depends(get_db)):
         except ProviderError as exc:
             raise HTTPException(exc.status_code,str(exc)) from exc
     review_policy=EXPERIMENT_CONDITION_POLICIES[body.condition]
-    r=Run(id=str(uuid.uuid4()),project_id=p.id,models=body.models,settings={"max_papers":body.max_papers,"source_mode":body.source_mode,"experiment_label":body.experiment_label,"condition":body.condition,"scenario":body.condition,"replicate":body.replicate,"random_seed":body.random_seed,"temperature":body.temperature,"protocol_version":"1.1","review_policy":review_policy,"model_scope":"extraction,organization,synthesis; search uses OpenAlex or the fixed saved corpus"},status="queued"); db.add(r); db.flush(); record(db,p.id,r.id,"run_queued","Workflow run queued",{"review_policy":review_policy,"scenario":body.condition,"models":body.models,"experiment_label":body.experiment_label,"replicate":body.replicate,"source_mode":body.source_mode}); db.commit(); db.refresh(r)
+    r=Run(id=str(uuid.uuid4()),project_id=p.id,models=body.models,settings={"max_papers":body.max_papers,"source_mode":body.source_mode,"experiment_label":body.experiment_label,"condition":body.condition,"scenario":body.condition,"replicate":body.replicate,"random_seed":body.random_seed,"temperature":body.temperature,"protocol_version":"1.2","review_policy":review_policy,"model_scope":"search ranking, extraction, organization, synthesis; candidate retrieval uses OpenAlex or the fixed saved corpus"},status="queued"); db.add(r); db.flush(); record(db,p.id,r.id,"run_queued","Workflow run queued",{"review_policy":review_policy,"scenario":body.condition,"models":body.models,"experiment_label":body.experiment_label,"replicate":body.replicate,"source_mode":body.source_mode}); db.commit(); db.refresh(r)
     return {**run_view(r),"artifacts":[]}
 @app.get("/api/v1/runs/{run_id}")
 def get_run(run_id:str,db:Session=Depends(get_db)):
@@ -142,7 +142,7 @@ def review(run_id:str,artifact_id:str,body:ReviewAction,db:Session=Depends(get_d
             if not selected: raise HTTPException(422,"Keep at least one source before approving Search.")
             if any(source_id not in candidates for source_id in selected): raise HTTPException(422,"A selected source was not produced by this Search artifact.")
             included=set(selected)
-            selected_snapshot=[item for item in snapshot if item.get("paper_id") in included]
+            selected_snapshot=sorted(({key:value for key,value in item.items() if key!="rank"} for item in snapshot if item.get("paper_id") in included),key=lambda item:item["paper_id"])
             selected_hash=hashlib.sha256(json.dumps(selected_snapshot,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")).hexdigest()
             all_candidate_hash=a.content.get("source_snapshot_hash","")
             a.content={**a.content,"search_result_snapshot_hash":all_candidate_hash,"included_paper_ids":selected,"excluded_paper_ids":[source_id for source_id in candidates if source_id not in included],"screened_source_snapshot_hash":selected_hash}
