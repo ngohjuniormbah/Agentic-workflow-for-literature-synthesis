@@ -10,7 +10,7 @@ import httpx
 from .config import settings
 
 STAGES = ["search", "extraction", "organization", "synthesis"]
-AI_STAGES = ["extraction", "organization", "synthesis"]
+AI_STAGES = STAGES.copy()
 
 
 @dataclass(frozen=True)
