@@ -8,7 +8,7 @@ The stages have separate responsibilities: Search retrieves and deduplicates can
 
 Requirements: Python 3.11+, Node.js 20+, npm. OpenAI API requests require internet access and are billed separately from a ChatGPT subscription. You may run the application locally while calling OpenAI remotely.
 
-1. Copy `backend/.env.example` to `backend/.env` and set `OPENAI_API_KEY` and `OPENAI_MODEL_ID` to your API key and exact supported model ID. Keep the key in the backend environment; never put it in the frontend.
+1. Copy `backend/.env.example` to `backend/.env` and set `OPENAI_API_KEY` and `OPENAI_MODEL` to your API key and exact supported model ID. Keep the key in the backend environment; never put it in the frontend.
 2. Copy `frontend/.env.local.example` to `frontend/.env.local`.
 3. In terminal 1: `cd backend && python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && alembic upgrade head && uvicorn app.main:app --host 127.0.0.1 --port 8000`
 4. In terminal 2: `cd backend && . .venv/bin/activate && python -m app.worker`
@@ -17,32 +17,34 @@ Requirements: Python 3.11+, Node.js 20+, npm. OpenAI API requests require intern
 
 The database-backed worker claims queued runs independently of HTTP requests. It resumes committed workflow checkpoints after a worker restart; calls interrupted before artifact commit may be retried and billed again. SQLite is suitable for a single-machine pilot. Use PostgreSQL for concurrent workers or a shared deployment.
 
-## Run the four-scenario experiment
+## Run the controlled two-condition experiment
 
-Each run selects one of four conditions. All four workflow stages execute in every condition:
+The initial paper protocol compares two conditions using the same four agents, one OpenAI model, one research question, one frozen source corpus, identical prompts/schemas/settings, and one independent evaluation rubric.
 
-| Condition | Human review gates | Operational definition |
+| Condition | Workflow | Operational definition |
 | --- | --- | --- |
-| `full_audit` | Search, Extraction, Organization, Synthesis | Review and rate each stage before it proceeds. Search screening is saved; only included papers reach Extraction. |
-| `targeted_retry` | Search, Synthesis | Review and screen the Search results, then review the final synthesis. A retry is requested by the human when needed. |
-| `endpoint_oversight` | Synthesis | The workflow runs through Search, Extraction, and Organization without review gates; the human reviews the final synthesis. |
-| `midpoint_gating` | Extraction | Search runs, then a human reviews the extracted claims before Organization and Synthesis continue. |
+| `without_intermediate_human_supervision` | Search → Extraction → Organization → Synthesis | All four stages execute and their original outputs are retained. No review action or correction is allowed between stages. Quality evaluation happens separately after completion. |
+| `with_human_supervision_all_stages` | Search → Review → Extraction → Review → Organization → Review → Synthesis → Review | The run pauses after every stage. A reviewer can approve, request revision, or approve a structured correction saved as a new artifact version. The model output is preserved. |
 
-For a four-model comparison, the app assigns one provider to all four agents within each model condition. In Search, the provider ranks every retrieved candidate; OpenAlex or the fixed corpus handles retrieval. The `condition` field selects the actual gate behavior; it is not merely a free-text label. Each run stores the scenario, mapped review policy, model assignments, replicate ID, ranked and screened source snapshots, and protocol version.
+The experimental unit is a run. For a paired comparison, use the same **Saved corpus (local / fixed)**, question, scope, OpenAI model ID, temperature, prompts/schema version, and reviewer instructions for both conditions. OpenAlex search and ranking should be documented as a separate discovery/search-evaluation step; do not run OpenAlex independently for each paired condition because retrieval differences would confound downstream comparisons. A run freezes its selected source IDs and a content hash before extraction.
 
-The 4 × 4 design is **16 model-scenario configurations**. Replicates are additional runs: for example, four replicates per configuration require 64 complete runs. Keep replicate count, corpus, research question, model settings, and reviewer procedure in your written protocol before collecting results.
+The app keeps workflow approval decisions separate from independent quality scores. Review comments, decisions, corrections, screening selections, and optional measured review duration are recorded in durable `review_records`; corrections create a new artifact version and never overwrite the original. Independent reference annotations, evaluator scores, error labels, descriptive paired comparison, and a ZIP evidence package are available. Field presence is reported only as completeness, not semantic accuracy. The comparison reports descriptive statistics only; it does not calculate confidence intervals, significance tests, semantic field accuracy, or inter-rater agreement. PDF and DOCX rendering are not included. Do not describe these as measured results unless a human evaluator has entered the underlying records.
 
-1. Create one project with the final research question and scope.
-2. Build and freeze one corpus for comparison. Prefer text-based PDFs uploaded to **Saved papers**; scanned PDFs require OCR first. PDFs are extracted locally. Keep this corpus unchanged across model and scenario runs. Use **Saved corpus (local / fixed)** for every configuration so live search changes do not confound the comparison.
-3. In each run, enter the study label, scenario, replicate ID, seed, and temperature. For each model condition, choose that same provider for all four agents. Test its connection first.
-4. At the configured gates, use the same inclusion rules and review rubric. For Search gates, apply a prewritten screening rule and retain the same final source set in every condition. Record reviewer notes and do not treat technical pilots as confirmatory runs.
-5. Export **Run records (JSONL)** after each run. It contains run settings, scenario, ranked and screened source snapshots and hashes, artifacts, prompt hashes, reviewer decisions/ratings, stage and provider-request durations, token usage, and provider-reported cost when returned. Provider cost is not guaranteed for every API; do not interpret a missing cost field as zero.
+### Research procedure
 
-Separate runs do not share mutable artifact state. Temperature is sent to the model endpoint; the recorded replicate seed is metadata and is not sent because seed support varies by model/provider. Temperature zero does not guarantee identical results across models or provider revisions. Protocol version `1.2` records the scenario-gated workflow and LLM-ranked Search behavior; keep protocol versions consistent within a study.
+1. Define the literature-search question, scope, inclusion/exclusion criteria, and a reference set/search log before looking at model outputs. Use **OpenAlex corpus discovery** to search by the project question; screen and freeze the candidate corpus. Keep the query, date, parameters, duplicate count, and reference set with the study. Search is retrieval plus LLM ranking of the retrieved candidates, not a claim of exhaustive database coverage.
+2. Create a project with the research question and scope. Add the frozen corpus in **Saved papers** and use **Saved corpus (local / fixed)** for every formal run.
+3. Test OpenAI and record the exact model ID. Create paired runs with matching replicate IDs (for example, `pair-01-A` and `pair-01-B`), temperature, source snapshot, and other settings; vary only the experimental condition. Run Condition A and B on the same frozen Saved corpus. A pilot with one pair checks the process; it is not enough by itself for a strong inferential claim.
+4. In the supervised condition, follow the prewritten review protocol. Record reasons for approval/revision/correction, preserve original and corrected artifacts, and log review time. Do not alter workflow artifacts in the no-intermediate condition.
+5. Evaluate completed outputs independently using the same versioned rubric. Do not use workflow approvals as quality scores or let the model be the only evaluator.
+6. Export the raw run records and keep the protocol, corpus manifest, reference annotations, evaluator scores, and error log with the paper's research records.
 
+Use descriptive statistics for the observations collected. Do not claim statistical significance unless the sample size and chosen test justify it. The recorded replicate seed is metadata and is not sent to the API; temperature zero does not make hosted model outputs deterministic. Machine time, human review time, token usage, and provider-reported cost are different measures; missing provider cost must not be treated as zero. Reference annotations are stored for traceability, but automated semantic agreement scores are not calculated. Search precision/recall require evaluator-entered relevant paper IDs; current Search metric is based on ranked IDs and may not fully capture retrieval recall without a well-defined reference set.
+
+Older runs may contain the previous four-scenario identifiers (`full_audit`, `targeted_retry`, `endpoint_oversight`, `midpoint_gating`). They remain readable for audit history but are not selectable for the initial two-condition protocol.
 ## OpenRouter models
 
-When ready, configure `OPENROUTER_API_KEY` once and set `OPENROUTER_QWEN_MODEL_ID`, `OPENROUTER_KIMI_MODEL_ID`, and `OPENROUTER_DEEPSEEK_MODEL_ID` to the exact model slugs from OpenRouter. OpenAI uses its separate `OPENAI_API_KEY` and `OPENAI_MODEL_ID`. All provider secrets remain on the backend. Each connection test sends a small billable request.
+When ready, configure `OPENROUTER_API_KEY` once and set `OPENROUTER_QWEN_MODEL_ID`, `OPENROUTER_KIMI_MODEL_ID`, and `OPENROUTER_DEEPSEEK_MODEL_ID` to the exact model slugs from OpenRouter. OpenAI uses its separate `OPENAI_API_KEY` and `OPENAI_MODEL`. All provider secrets remain on the backend. Each connection test sends a small billable request.
 
 ## Container deployment
 
@@ -50,4 +52,4 @@ Copy `.env.example` to `.env`, set strong unique secrets and model configuration
 
 ## Verification
 
-Backend checks: `cd backend && . .venv/bin/activate && python -m unittest discover -s tests`. Frontend checks: `cd frontend && npm run build`. A successful build does not validate external credentials; use the in-app connection checks and a complete small-corpus run before collecting study data.
+Install validation tools with `cd backend && . .venv/bin/activate && pip install -r requirements-dev.txt`. Backend checks: `python -m pytest -q` and `ruff check app tests`. Frontend checks: `cd frontend && npm run build`. A successful build does not validate external credentials; use the in-app connection check and complete one small-corpus run under each condition before collecting formal study data.

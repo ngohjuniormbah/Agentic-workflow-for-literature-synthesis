@@ -1,4 +1,5 @@
 """Database-backed workflow worker. One queued run is claimed per worker loop."""
+
 import logging
 import signal
 import time
@@ -10,7 +11,9 @@ from .db import SessionLocal
 from .models import Artifact, Event, Project, Run
 from .workflow import advance
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
+)
 log = logging.getLogger("synthesis.worker")
 stopping = False
 
@@ -25,13 +28,27 @@ def recover_interrupted_runs():
     with SessionLocal() as db:
         runs = db.scalars(select(Run).where(Run.status == "running")).all()
         for run in runs:
-            latest = db.scalar(select(Artifact).where(Artifact.run_id == run.id).order_by(Artifact.created_at.desc(), Artifact.id.desc()).limit(1))
+            latest = db.scalar(
+                select(Artifact)
+                .where(Artifact.run_id == run.id)
+                .order_by(Artifact.created_at.desc(), Artifact.id.desc())
+                .limit(1)
+            )
             resume_from = run.settings.get("resume_from_stage")
             if latest and latest.status == "approved":
                 resume_from = latest.stage
             run.settings = {**run.settings, "resume_from_stage": resume_from}
             run.status = "queued"
-            db.add(Event(id=str(uuid.uuid4()), project_id=run.project_id, run_id=run.id, type="worker_recovered", message="Interrupted run requeued after worker restart", details={"resume_from_stage": resume_from}))
+            db.add(
+                Event(
+                    id=str(uuid.uuid4()),
+                    project_id=run.project_id,
+                    run_id=run.id,
+                    type="worker_recovered",
+                    message="Interrupted run requeued after worker restart",
+                    details={"resume_from_stage": resume_from},
+                )
+            )
         db.commit()
         if runs:
             log.warning("Requeued %d interrupted runs", len(runs))
@@ -40,7 +57,13 @@ def recover_interrupted_runs():
 def claim_next_run():
     """Atomically claim one run; SKIP LOCKED allows multiple PostgreSQL workers."""
     with SessionLocal() as db:
-        query = select(Run).where(Run.status == "queued").order_by(Run.created_at).limit(1).with_for_update(skip_locked=True)
+        query = (
+            select(Run)
+            .where(Run.status == "queued")
+            .order_by(Run.created_at)
+            .limit(1)
+            .with_for_update(skip_locked=True)
+        )
         run = db.scalar(query)
         if run is None:
             return None

@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
     app_name: str = "Synthesis API"
     app_env: str = "development"
@@ -15,9 +16,13 @@ class Settings(BaseSettings):
     openrouter_kimi_model_id: str = ""
     openrouter_deepseek_model_id: str = ""
     openai_api_key: str = ""
-    openai_model_id: str = "gpt-4.1-mini"
+    openai_model_id: str = ""
+    openai_model: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     llm_timeout_seconds: float = 90.0
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+
 settings = Settings()
+if settings.openai_model.strip():
+    settings.openai_model_id = settings.openai_model.strip()
