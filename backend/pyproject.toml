@@ -1,0 +1,3 @@
+[tool.ruff.lint]
+# FastAPI uses Depends/File declaration defaults as framework metadata.
+ignore = ["B008"]

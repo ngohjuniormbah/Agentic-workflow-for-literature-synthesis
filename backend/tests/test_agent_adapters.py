@@ -1,4 +1,5 @@
 import unittest
+from typing import ClassVar
 from unittest.mock import patch
 
 from app import agents
@@ -12,12 +13,17 @@ class FakeResponse:
         return {
             "model": "mock/served-model",
             "choices": [{"message": {"content": "OK"}}],
-            "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3, "cost": 0.001},
+            "usage": {
+                "prompt_tokens": 2,
+                "completion_tokens": 1,
+                "total_tokens": 3,
+                "cost": 0.001,
+            },
         }
 
 
 class FakeClient:
-    calls = []
+    calls: ClassVar[list] = []
 
     def __init__(self, **kwargs):
         pass
@@ -39,9 +45,13 @@ class AgentAdapterTests(unittest.TestCase):
         original = {
             name: getattr(settings, name)
             for name in (
-                "openai_api_key", "openai_model_id", "openrouter_api_key",
-                "openrouter_qwen_model_id", "openrouter_kimi_model_id",
-                "openrouter_deepseek_model_id", "openrouter_base_url",
+                "openai_api_key",
+                "openai_model_id",
+                "openrouter_api_key",
+                "openrouter_qwen_model_id",
+                "openrouter_kimi_model_id",
+                "openrouter_deepseek_model_id",
+                "openrouter_base_url",
             )
         }
         settings.openai_api_key = "mock-openai-key"
@@ -56,14 +66,21 @@ class AgentAdapterTests(unittest.TestCase):
             "openai": ("https://api.openai.com/v1/chat/completions", "mock/openai"),
             "qwen": ("https://openrouter.example/v1/chat/completions", "mock/qwen"),
             "kimi": ("https://openrouter.example/v1/chat/completions", "mock/kimi"),
-            "deepseek": ("https://openrouter.example/v1/chat/completions", "mock/deepseek"),
+            "deepseek": (
+                "https://openrouter.example/v1/chat/completions",
+                "mock/deepseek",
+            ),
         }
         try:
             with patch.object(agents.httpx, "Client", FakeClient):
                 for provider, (expected_url, expected_model) in expected.items():
-                    text, actual_model, metadata = agents.complete(provider, "test prompt", "test system")
+                    text, actual_model, metadata = agents.complete(
+                        provider, "test prompt", "test system"
+                    )
                     url, headers, payload = FakeClient.calls[-1]
-                    self.assertEqual((url, payload["model"]), (expected_url, expected_model))
+                    self.assertEqual(
+                        (url, payload["model"]), (expected_url, expected_model)
+                    )
                     self.assertTrue(headers["Authorization"].startswith("Bearer mock-"))
                     self.assertEqual((text, actual_model), ("OK", "mock/served-model"))
                     self.assertEqual(metadata["usage"]["cost"], 0.001)

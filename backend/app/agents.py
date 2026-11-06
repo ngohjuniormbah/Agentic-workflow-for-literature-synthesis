@@ -1,6 +1,6 @@
+import hashlib
 import json
 import re
-import hashlib
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -84,7 +84,7 @@ def provider_config(name: str) -> Provider:
         raise ProviderError(f"{name} has no API key configured ({key_name}).", 503)
     if not provider.model_id:
         model_key = {
-            "openai": "OPENAI_MODEL_ID",
+            "openai": "OPENAI_MODEL (OPENAI_MODEL_ID is supported for older configurations)",
             "qwen": "OPENROUTER_QWEN_MODEL_ID",
             "kimi": "OPENROUTER_KIMI_MODEL_ID",
             "deepseek": "OPENROUTER_DEEPSEEK_MODEL_ID",
@@ -93,7 +93,14 @@ def provider_config(name: str) -> Provider:
     return provider
 
 
-def complete(provider_name: str, prompt: str, system: str, *, max_tokens: int | None = None, temperature: float = 0.0) -> tuple[str, str, dict[str, Any]]:
+def complete(
+    provider_name: str,
+    prompt: str,
+    system: str,
+    *,
+    max_tokens: int | None = None,
+    temperature: float = 0.0,
+) -> tuple[str, str, dict[str, Any]]:
     provider = provider_config(provider_name)
     headers = {
         "Authorization": f"Bearer {provider.api_key.strip()}",
@@ -122,9 +129,15 @@ def complete(provider_name: str, prompt: str, system: str, *, max_tokens: int | 
                 json=payload,
             )
     except httpx.TimeoutException as exc:
-        raise ProviderError(f"{provider_name} request timed out after {settings.llm_timeout_seconds:g}s.", 504) from exc
+        raise ProviderError(
+            f"{provider_name} request timed out after {settings.llm_timeout_seconds:g}s.",
+            504,
+        ) from exc
     except httpx.RequestError as exc:
-        raise ProviderError(f"Could not connect to {provider.gateway} for {provider_name}: {type(exc).__name__}.", 502) from exc
+        raise ProviderError(
+            f"Could not connect to {provider.gateway} for {provider_name}: {type(exc).__name__}.",
+            502,
+        ) from exc
 
     if response.is_error:
         message = ""
@@ -141,27 +154,63 @@ def complete(provider_name: str, prompt: str, system: str, *, max_tokens: int | 
             detail = " — provider rejected the key or model access; check the provider key and model permissions"
         elif response.status_code == 404:
             detail = " — model ID or endpoint was not found; verify the exact model ID"
-        raise ProviderError(f"{provider.gateway} {provider_name} request failed (HTTP {response.status_code}){detail}", status)
+        raise ProviderError(
+            f"{provider.gateway} {provider_name} request failed (HTTP {response.status_code}){detail}",
+            status,
+        )
 
     try:
         data = response.json()
         message = data["choices"][0]["message"]["content"]
     except (ValueError, KeyError, IndexError, TypeError) as exc:
-        raise ProviderError(f"{provider.gateway} returned an unexpected chat-completions response for {provider_name}.", 502) from exc
+        raise ProviderError(
+            f"{provider.gateway} returned an unexpected chat-completions response for {provider_name}.",
+            502,
+        ) from exc
     if not isinstance(message, str) or not message.strip():
-        raise ProviderError(f"{provider.gateway} returned an empty response for {provider_name}.", 502)
+        raise ProviderError(
+            f"{provider.gateway} returned an empty response for {provider_name}.", 502
+        )
     actual_model = data.get("model") or provider.model_id
     usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
-    return message.strip(), actual_model, {"usage": {k: usage[k] for k in ("prompt_tokens", "completion_tokens", "total_tokens", "cost") if k in usage}, "prompt_sha256": hashlib.sha256((system + "\0" + prompt).encode("utf-8")).hexdigest(), "request_duration_ms": round((time.perf_counter() - request_started) * 1000, 3)}
+    return (
+        message.strip(),
+        actual_model,
+        {
+            "usage": {
+                k: usage[k]
+                for k in ("prompt_tokens", "completion_tokens", "total_tokens", "cost")
+                if k in usage
+            },
+            "prompt_sha256": hashlib.sha256(
+                (system + "\0" + prompt).encode("utf-8")
+            ).hexdigest(),
+            "request_duration_ms": round(
+                (time.perf_counter() - request_started) * 1000, 3
+            ),
+        },
+    )
 
 
-def json_answer(provider: str, prompt: str, system: str, *, temperature: float = 0.0) -> tuple[dict, str, dict[str, Any]]:
-    raw, model, usage = complete(provider, prompt, system + " Return only valid JSON, without markdown fences.", temperature=temperature)
-    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.I)
+def json_answer(
+    provider: str, prompt: str, system: str, *, temperature: float = 0.0
+) -> tuple[dict, str, dict[str, Any]]:
+    raw, model, usage = complete(
+        provider,
+        prompt,
+        system + " Return only valid JSON, without markdown fences.",
+        temperature=temperature,
+    )
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ProviderError("The model returned invalid JSON. Retry this stage or choose another model.", 502) from exc
+        raise ProviderError(
+            "The model returned invalid JSON. Retry this stage or choose another model.",
+            502,
+        ) from exc
     if not isinstance(payload, dict):
-        raise ProviderError("The model returned JSON in the wrong format; an object was expected.", 502)
+        raise ProviderError(
+            "The model returned JSON in the wrong format; an object was expected.", 502
+        )
     return payload, model, usage

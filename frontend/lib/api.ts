@@ -1,6 +1,6 @@
 const API = process.env.NEXT_PUBLIC_API_URL ?? '';
 export type Project = { id:string; title:string; question:string; scope:string; review_policy:string; created_at:string; run_count:number };
-export type Paper = { id:string; title:string; authors:string[]; year:number|null; doi:string|null; url:string; abstract:string; venue:string; citation_count:number; has_full_text?:boolean };
+export type Paper = { id:string; title:string; authors:string[]; year:number|null; doi:string|null; url:string; abstract:string; venue:string; citation_count:number; has_full_text?:boolean; in_frozen_corpus?:boolean };
 export type Artifact = { id:string; stage:string; version:number; content:any; status:string; model:string; reviewer_note:string; created_at:string };
 export type Run = { id:string; project_id:string; status:string; current_stage:string; models:Record<string,string>; settings:Record<string,any>; artifacts:Artifact[]; papers?:Paper[]; created_at:string; updated_at:string };
 export type Provider = {id:string;gateway:string;configured:boolean;model:string};
