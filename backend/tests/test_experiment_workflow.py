@@ -701,6 +701,105 @@ class WorkflowExperimentTests(unittest.TestCase):
         self.assertEqual(review.ratings, {})
         self.assertEqual(result["status"], "queued")
 
+    def test_supervised_recovery_restarts_at_extraction_from_frozen_papers(self):
+        frozen_ids = [self.paper.id]
+        frozen_hash = "frozen-source-snapshot"
+        self.run.settings = {
+            "condition": "with_human_supervision_all_stages",
+            "protocol_version": "2.0",
+            "review_policy": "every_stage",
+            "source_mode": "saved_corpus",
+            "source_paper_ids": frozen_ids,
+            "source_snapshot_hash": frozen_hash,
+        }
+        self.run.status = "awaiting_review"
+        search = Artifact(
+            id=str(uuid.uuid4()),
+            run_id=self.run.id,
+            stage="search",
+            version=1,
+            content={
+                "source_paper_ids": frozen_ids,
+                "source_snapshot_hash": frozen_hash,
+            },
+            status="approved",
+            model="openai",
+        )
+        organization = Artifact(
+            id=str(uuid.uuid4()),
+            run_id=self.run.id,
+            stage="organization",
+            version=1,
+            content={"themes": [{"name": "A theme"}]},
+            status="pending_review",
+            model="openai",
+        )
+        self.session.add_all([search, organization])
+        self.session.commit()
+
+        result = main.review(
+            self.run.id,
+            organization.id,
+            ReviewAction(
+                action="restart_from_extraction",
+                note="Organization missed a comparison; re-check the source evidence.",
+                review_duration_ms=90000,
+            ),
+            self.session,
+        )
+
+        self.assertEqual(result["status"], "queued")
+        self.assertEqual(result["settings"]["resume_from_stage"], "search")
+        self.assertEqual(result["settings"]["source_paper_ids"], frozen_ids)
+        self.assertEqual(result["settings"]["source_snapshot_hash"], frozen_hash)
+        self.assertEqual(result["settings"]["saved_corpus_restart_count"], 1)
+        self.assertEqual(organization.status, "revision_requested")
+        saved_review = self.session.scalar(
+            select(ReviewRecord).where(ReviewRecord.artifact_id == organization.id)
+        )
+        self.assertEqual(saved_review.decision, "restart_from_extraction")
+        self.assertEqual(saved_review.review_duration_ms, 90000)
+        restart_event = self.session.scalar(
+            select(Event).where(
+                Event.run_id == self.run.id,
+                Event.type == "workflow_restarted_from_saved_corpus",
+            )
+        )
+        self.assertEqual(restart_event.details["source_snapshot_hash"], frozen_hash)
+
+    def test_autonomous_condition_cannot_use_supervised_corpus_restart_action(self):
+        self.run.settings = {
+            "condition": "without_intermediate_human_supervision",
+            "protocol_version": "2.0",
+            "source_paper_ids": [self.paper.id],
+            "source_snapshot_hash": "frozen-source-snapshot",
+        }
+        self.run.status = "awaiting_review"
+        artifact = Artifact(
+            id=str(uuid.uuid4()),
+            run_id=self.run.id,
+            stage="synthesis",
+            version=1,
+            content={"draft": "Autonomous output"},
+            status="pending_review",
+            model="openai",
+        )
+        self.session.add(artifact)
+        self.session.commit()
+
+        with self.assertRaises(main.HTTPException) as error:
+            main.review(
+                self.run.id,
+                artifact.id,
+                ReviewAction(
+                    action="restart_from_extraction",
+                    note="Do not alter the autonomous run.",
+                ),
+                self.session,
+            )
+
+        self.assertEqual(error.exception.status_code, 422)
+
     def test_supervised_search_records_screening_without_changing_frozen_comparison_corpus(
         self,
     ):
@@ -804,6 +903,45 @@ class WorkflowExperimentTests(unittest.TestCase):
         with patch.object(workflow, "execute_stage", side_effect=fake_execute):
             workflow.advance(self.session, self.project, run)
         self.assertEqual(visited, workflow.STAGES)
+        self.assertEqual(run.status, "completed")
+
+    def test_resume_after_search_checkpoint_starts_at_extraction(self):
+        run = Run(
+            id=str(uuid.uuid4()),
+            project_id=self.project.id,
+            models=self.run.models,
+            settings={
+                "condition": "with_human_supervision_all_stages",
+                "review_policy": "every_stage",
+                "source_mode": "saved_corpus",
+                "source_paper_ids": [self.paper.id],
+                "source_snapshot_hash": "frozen",
+            },
+            status="running",
+        )
+        self.session.add(run)
+        self.session.commit()
+        visited = []
+
+        def fake_execute(db, project, current_run, stage):
+            visited.append(stage)
+            artifact = Artifact(
+                id=str(uuid.uuid4()),
+                run_id=current_run.id,
+                stage=stage,
+                version=1,
+                content={"stage": stage},
+                status="approved",
+                model="mock/openai",
+            )
+            db.add(artifact)
+            db.flush()
+            return artifact
+
+        with patch.object(workflow, "execute_stage", side_effect=fake_execute):
+            workflow.advance(self.session, self.project, run, from_stage="search")
+
+        self.assertEqual(visited, ["extraction", "organization", "synthesis"])
         self.assertEqual(run.status, "completed")
 
     def test_independent_reference_evaluation_metrics_and_evidence_package(self):

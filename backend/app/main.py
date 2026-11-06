@@ -593,6 +593,41 @@ def review(
         raise HTTPException(409, "Artifact is no longer awaiting review")
     if r.status != "awaiting_review":
         raise HTTPException(409, "Run is not currently waiting for review")
+    if body.action == "restart_from_extraction":
+        if (
+            r.settings.get("condition") != "with_human_supervision_all_stages"
+            or r.settings.get("protocol_version") != "2.0"
+        ):
+            raise HTTPException(
+                422,
+                "Restarting from saved papers is available only in the supervised experimental condition.",
+            )
+        if a.stage not in {"extraction", "organization", "synthesis"}:
+            raise HTTPException(
+                422,
+                "Approve Search first; a saved-paper restart begins at Extraction.",
+            )
+        if len(body.note.strip()) < 3:
+            raise HTTPException(422, "Add a short reason for restarting Extraction.")
+        approved_search = db.scalar(
+            select(Artifact).where(
+                Artifact.run_id == r.id,
+                Artifact.stage == "search",
+                Artifact.status == "approved",
+            )
+        )
+        source_ids = r.settings.get("source_paper_ids") or []
+        source_hash = r.settings.get("source_snapshot_hash")
+        if not approved_search or not source_ids or not source_hash:
+            raise HTTPException(
+                409,
+                "The run has no approved, frozen Search corpus to restart from.",
+            )
+        if body.correction is not None:
+            raise HTTPException(
+                422,
+                "Save corrections at the stage review gate; a corpus restart cannot include a correction payload.",
+            )
     a.reviewer_note = body.note
     corrected_artifact_id = None
     next_revision = 1 + len(
@@ -645,7 +680,47 @@ def review(
         original_content={k: v for k, v in a.content.items() if k != "_telemetry"},
     )
     db.add(review_record)
-    if body.action == "approve":
+    if body.action == "restart_from_extraction":
+        a.status = "revision_requested"
+        restart_count = int(r.settings.get("saved_corpus_restart_count", 0)) + 1
+        r.settings = {
+            **r.settings,
+            "resume_from_stage": "search",
+            "review_note": body.note.strip(),
+            "saved_corpus_restart_count": restart_count,
+        }
+        record(
+            db,
+            p.id,
+            r.id,
+            "review_revision_requested",
+            "Reviewer restarted workflow from the saved corpus",
+            {
+                "review_id": review_record.id,
+                "artifact_id": a.id,
+                "action": body.action,
+                "retry_stage": "extraction",
+                "source_paper_ids": source_ids,
+                "source_snapshot_hash": source_hash,
+                "note": body.note.strip(),
+                "review_duration_ms": body.review_duration_ms,
+            },
+        )
+        record(
+            db,
+            p.id,
+            r.id,
+            "workflow_restarted_from_saved_corpus",
+            "Extraction queued again using the run's original frozen paper set",
+            {
+                "restart_count": restart_count,
+                "source_paper_ids": source_ids,
+                "source_snapshot_hash": source_hash,
+                "from_stage": a.stage,
+                "resume_from_stage": "search",
+            },
+        )
+    elif body.action == "approve":
         screening_details = {}
         if a.stage == "search":
             snapshot = a.content.get("source_snapshot", [])

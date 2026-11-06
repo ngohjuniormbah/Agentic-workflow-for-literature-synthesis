@@ -49,7 +49,7 @@ class ReviewRatings(BaseModel):
 
 
 class ReviewAction(BaseModel):
-    action: Literal["approve", "retry", "return"]
+    action: Literal["approve", "retry", "return", "restart_from_extraction"]
     note: str = Field(default="", max_length=5000)
     correction: dict | None = None
     review_duration_ms: int | None = Field(default=None, ge=0, le=86_400_000)
