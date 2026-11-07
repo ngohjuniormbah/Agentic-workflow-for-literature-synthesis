@@ -201,9 +201,11 @@ def build_experiment_log_rows(db: Session, project: Project):
                 ),
                 "Human review between agents": (
                     "No - automatic progression"
-                    if run.settings.get("condition") == "without_intermediate_human_supervision"
+                    if run.settings.get("condition")
+                    == "without_intermediate_human_supervision"
                     else "Yes - reviewer approves each stage"
-                    if run.settings.get("condition") == "with_human_supervision_all_stages"
+                    if run.settings.get("condition")
+                    == "with_human_supervision_all_stages"
                     else "Not applicable - search only"
                     if run.settings.get("condition") == "search_discovery"
                     else ""
