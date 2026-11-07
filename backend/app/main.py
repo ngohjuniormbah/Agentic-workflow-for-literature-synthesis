@@ -224,13 +224,24 @@ def health(db: Session = Depends(get_db)):
 
 @app.get("/api/v1/models")
 def models():
+    # Environment configuration must never expose credential-like values to
+    # the browser. A misplaced key in a model-ID setting is hidden and marked
+    # unconfigured instead of being rendered in the model selector.
+    import re
+
+    def safe_model_id(value: str) -> str:
+        candidate = value.strip()
+        if re.search(r"(?i)(sk-[a-z0-9_-]{8,}|api[_-]?key|secret|token)", candidate):
+            return ""
+        return candidate
+
     return {
         "providers": [
             {
                 "id": p.id,
                 "gateway": p.gateway,
-                "configured": p.configured,
-                "model": p.model_id,
+                "configured": p.configured and bool(safe_model_id(p.model_id)),
+                "model": safe_model_id(p.model_id),
             }
             for p in provider_catalog().values()
         ]
