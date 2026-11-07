@@ -93,3 +93,45 @@
 .empty-inline b{font-size:15px}
 .empty-inline span,.footer{font-size:13px}
 .review-kicker{font-size:10px}
+
+/* Clear three-card experiment controls, project actions, and readable text. */
+.project-row{display:flex;align-items:center;gap:3px;border-radius:7px}
+.project-row.active{background:#f5f7f5}
+.project-row .project-item{flex:1;min-width:0;width:0}
+.project-item{width:100%;font-size:14px}
+.project-title{overflow:hidden;text-overflow:ellipsis}
+.project-delete{width:32px;height:32px;display:grid;place-items:center;flex:none;border:0;border-radius:6px;background:transparent;color:#8a665f;opacity:.45;cursor:pointer}
+.project-row:hover .project-delete,.project-row:focus-within .project-delete{opacity:1}
+.project-delete:hover{background:#fff0ed;color:#a33f31}
+.project-delete:disabled{opacity:.3;cursor:not-allowed}
+.experiment-control-grid{display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:16px;margin-top:22px;align-items:stretch}
+.experiment-control{min-width:0;border:1px solid #e0e7e1;border-radius:11px;background:#fff;padding:18px}
+.control-card-heading>span,.condition-control legend{display:block;margin:0 0 8px;color:#738278;font:600 11px 'DM Mono',monospace;letter-spacing:.1em}
+.control-card-heading h3{display:flex;align-items:center;gap:8px;margin:0 0 13px;font-size:20px;color:#203d2e}
+.model-select-label{display:grid;gap:7px;color:#4c5d52;font-size:16px;font-weight:650}
+.model-select-label select{height:46px;width:100%;border:1px solid #d8e1da;border-radius:8px;padding:0 12px;background:#fff;color:#263d30;font-size:15px}
+.experiment-control>p{margin:12px 0 0;color:#617068;font-size:17px;line-height:1.55}
+.model-test-row{flex-wrap:wrap}
+.model-test-row .secondary{font-size:14px}
+.source-control{display:flex;flex-direction:column}
+.source-control .control-card-heading h3{margin-bottom:0}
+.corpus-count{display:flex;align-items:center;gap:9px;margin-top:auto;padding-top:14px;color:#245c43}
+.corpus-count strong{font-size:19px}.corpus-count span{font-size:15px;color:#617068}
+.condition-control{display:grid;gap:10px;align-content:start}
+.condition-control legend{padding:0}
+.condition-choice{display:flex;align-items:flex-start;gap:10px;border:1px solid #e1e8e2;border-radius:9px;padding:12px;background:#fff;cursor:pointer}
+.condition-choice.selected{border-color:#39805d;background:#f4f9f5;box-shadow:0 0 0 1px #39805d22}
+.condition-choice input{width:18px;height:18px;margin:2px 0 0;accent-color:#176b53;flex:none}
+.condition-choice>span{display:grid;gap:5px}
+.condition-choice b{font-size:17px;color:#294b38}
+.condition-choice small{font-size:15px;line-height:1.45;color:#65746b}
+.experiment-launch-row{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-top:18px}
+.experiment-launch-row .pair-field{margin:0;max-width:420px;flex:1}
+.experiment-launch-row .start-experiment-button{min-height:48px}
+.experiment-card .section-head h2{font-size:23px}
+.experiment-card .section-head p{font-size:17px;line-height:1.5}
+.corpus-next-step p{font-size:17px;line-height:1.55}
+.question,.question-panel,.scope p,.section-head p,.run-failure p,.review-heading p,.paper-abstract,.claim p,.theme-row p,.draft-preview p{font-size:18px;line-height:1.6}
+.section-head h3,.review-heading h2{font-size:21px}
+@media(max-width:1050px){.experiment-control-grid{grid-template-columns:1fr 1fr}.condition-control{grid-column:1/-1}.condition-choice{flex:1}.condition-control{grid-template-columns:1fr 1fr}.condition-control legend{grid-column:1/-1}}
+@media(max-width:700px){.experiment-control-grid{grid-template-columns:1fr}.condition-control{grid-column:auto;grid-template-columns:1fr}.condition-control legend{grid-column:auto}.experiment-launch-row{align-items:stretch;flex-direction:column}.experiment-launch-row .pair-field{max-width:none}.experiment-launch-row .start-experiment-button{width:100%}}

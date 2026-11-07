@@ -96,6 +96,60 @@ class WorkflowExperimentTests(unittest.TestCase):
             RunCreate(models={}, random_seed=2**32)
         self.assertIsNone(ReviewAction(action="approve").ratings)
 
+    def test_delete_project_removes_its_saved_experiment_data_only(self):
+        other = Project(
+            id=str(uuid.uuid4()),
+            title="Keep this project",
+            question="Keep this research question?",
+            scope="",
+            review_policy="every_stage",
+        )
+        self.session.add(other)
+        other_paper = Paper(
+            id=str(uuid.uuid4()),
+            project_id=other.id,
+            run_id=None,
+            title="Other project paper",
+            authors=[],
+            year=2025,
+            doi=None,
+            url="",
+            abstract="",
+            full_text="",
+            venue="",
+            citation_count=0,
+        )
+        self.session.add(other_paper)
+        self.run.status = "completed"
+        self.session.commit()
+
+        result = main.delete_project(self.project.id, self.session)
+
+        self.assertTrue(result["deleted"])
+        self.assertIsNone(self.session.get(Project, self.project.id))
+        self.assertIsNone(self.session.get(Paper, self.paper.id))
+        self.assertIsNone(self.session.get(Run, self.run.id))
+        self.assertIsNotNone(self.session.get(Project, other.id))
+        self.assertIsNotNone(self.session.get(Paper, other_paper.id))
+
+    def test_run_view_redacts_credentials_misconfigured_as_model_ids(self):
+        self.run.settings["model_ids"] = {
+            "search": "OPENROUTER_API_KEY: sk-or-v1-credential-value",
+            "extraction": "gpt-4o-mini",
+        }
+
+        result = main.run_view(self.run)
+
+        self.assertEqual(
+            result["settings"]["model_ids"]["search"],
+            "Invalid model ID (credential redacted)",
+        )
+        self.assertEqual(result["settings"]["model_ids"]["extraction"], "gpt-4o-mini")
+        self.assertEqual(
+            main.safe_model_id("sk-or-v1-credential-value"),
+            "",
+        )
+
     def test_run_detail_exposes_the_saved_stage_failure_for_the_dashboard(self):
         self.run.status = "failed"
         failure = Event(

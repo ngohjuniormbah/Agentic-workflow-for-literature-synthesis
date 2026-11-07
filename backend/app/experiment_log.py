@@ -2,6 +2,7 @@
 
 import csv
 import io
+import re
 from datetime import timezone
 
 from sqlalchemy import select
@@ -12,63 +13,72 @@ from .models import Artifact, Project, ReviewRecord, Run
 
 SUMMARY_CSV_HEADERS = [
     "Run ID",
-    "Project",
+    "Project title",
     "Research question",
-    "Experiment label",
-    "Experimental condition",
-    "Condition code",
-    "Replicate ID",
-    "Protocol version",
-    "Run status",
-    "Current stage",
-    "Created (UTC)",
-    "Last updated (UTC)",
-    "Model used by each agent",
-    "Temperature",
-    "Random seed",
-    "Search query",
-    "Corpus papers",
+    "Pair ID",
+    "Condition (plain language)",
+    "Human review between agents",
+    "Model shared by four agents",
+    "Paper source",
+    "Papers in fixed corpus",
     "Corpus fingerprint (SHA-256)",
-    "Search candidates retrieved",
-    "Duplicate records removed",
-    "Papers included by reviewer",
+    "Run status",
+    "Started (UTC)",
+    "Updated (UTC)",
+    "Search candidates found",
+    "Papers approved by reviewer",
     "Papers excluded by reviewer",
-    "Search Precision@10 (mean)",
-    "Search Recall@10 (mean)",
-    "Search reference evaluations",
-    "Extraction papers processed",
-    "Extraction fields present",
-    "Extraction fields possible",
-    "Extraction completeness (%) - not accuracy",
+    "Extraction completeness (% fields present; not accuracy)",
     "Evidence quotes captured",
-    "Organization themes",
-    "Organization agreements",
-    "Organization disagreements",
-    "Organization research gaps",
-    "Synthesis words",
-    "Verified citations",
-    "Rejected citations",
-    "Input tokens",
-    "Output tokens",
-    "Total tokens",
-    "Provider-reported cost",
-    "Cost currency",
-    "Agent time by stage (mean seconds)",
-    "Total agent execution seconds",
-    "Total elapsed seconds",
+    "Themes organized",
+    "Synthesis length (words)",
+    "Citations verified",
+    "Citations rejected as unsupported",
+    "Independent evaluation scores (mean; stage and measure)",
+    "Total tokens used",
+    "Cost reported by provider",
+    "Total run time (seconds)",
     "Human review count",
-    "Measured human review seconds",
-    "Reviews without measured time",
-    "Review decisions",
-    "Saved-corpus restarts",
-    "Independent evaluation scores (mean; stage and dimension)",
-    "Error count",
-    "Corrected errors",
-    "Propagated errors",
-    "Error counts by type",
-    "Failure count",
-    "Evidence package URL",
+    "Human review time (seconds)",
+    "Errors recorded",
+    "Failed stages",
+    "Evidence package",
 ]
+
+
+CSV_EXPORT_MAPPING = {
+    "Run ID": "Run ID",
+    "Project title": "Project",
+    "Research question": "Research question",
+    "Pair ID": "Replicate ID",
+    "Condition (plain language)": "Experimental condition",
+    "Human review between agents": "Human review between agents",
+    "Model shared by four agents": "Shared model",
+    "Paper source": "Paper source",
+    "Papers in fixed corpus": "Corpus papers",
+    "Corpus fingerprint (SHA-256)": "Corpus fingerprint (SHA-256)",
+    "Run status": "Run status",
+    "Started (UTC)": "Created (UTC)",
+    "Updated (UTC)": "Last updated (UTC)",
+    "Search candidates found": "Search candidates retrieved",
+    "Papers approved by reviewer": "Papers included by reviewer",
+    "Papers excluded by reviewer": "Papers excluded by reviewer",
+    "Extraction completeness (% fields present; not accuracy)": "Extraction completeness (%) - not accuracy",
+    "Evidence quotes captured": "Evidence quotes captured",
+    "Themes organized": "Organization themes",
+    "Synthesis length (words)": "Synthesis words",
+    "Citations verified": "Verified citations",
+    "Citations rejected as unsupported": "Rejected citations",
+    "Independent evaluation scores (mean; stage and measure)": "Independent evaluation scores (mean; stage and dimension)",
+    "Total tokens used": "Total tokens",
+    "Cost reported by provider": "Provider-reported cost",
+    "Total run time (seconds)": "Total elapsed seconds",
+    "Human review count": "Human review count",
+    "Human review time (seconds)": "Measured human review seconds",
+    "Errors recorded": "Error count",
+    "Failed stages": "Failure count",
+    "Evidence package": "Evidence package URL",
+}
 
 
 def _utc(value):
@@ -93,9 +103,9 @@ def _mean(metric):
 
 def _condition_label(condition):
     return {
-        "without_intermediate_human_supervision": "Condition A - Autonomous",
-        "with_human_supervision_all_stages": "Condition B - Human supervised",
-        "search_discovery": "Search discovery - corpus preparation",
+        "without_intermediate_human_supervision": "Condition A - Automatic",
+        "with_human_supervision_all_stages": "Condition B - Human review",
+        "search_discovery": "Search only - corpus preparation (not an experiment run)",
     }.get(condition, condition or "")
 
 
@@ -110,6 +120,13 @@ def _score_summary(quality):
     return "; ".join(entries)
 
 
+def _safe_model_id(value):
+    candidate = str(value or "").strip()
+    if re.search(r"(?i)(sk-[a-z0-9_-]{8,}|api[_-]?key|secret|token)", candidate):
+        return "Invalid model ID (credential redacted)"
+    return candidate
+
+
 def _latest_model_ids(db, run):
     artifacts = db.scalars(
         select(Artifact)
@@ -119,9 +136,9 @@ def _latest_model_ids(db, run):
     model_ids = {}
     for artifact in artifacts:
         if artifact.model and artifact.model.casefold() != "human correction":
-            model_ids[artifact.stage] = artifact.model
+            model_ids[artifact.stage] = _safe_model_id(artifact.model)
     for stage, model_id in (run.settings.get("model_ids") or {}).items():
-        model_ids.setdefault(stage, model_id)
+        model_ids.setdefault(stage, _safe_model_id(model_id))
     return model_ids
 
 
@@ -190,7 +207,18 @@ def build_experiment_log_rows(db: Session, project: Project):
                 "Experimental condition": _condition_label(
                     run.settings.get("condition")
                 ),
-                "Condition code": run.settings.get("condition", ""),
+                "Human review between agents": (
+                    "No - automatic progression"
+                    if run.settings.get("condition")
+                    == "without_intermediate_human_supervision"
+                    else "Yes - reviewer approves each stage"
+                    if run.settings.get("condition")
+                    == "with_human_supervision_all_stages"
+                    else "Not applicable - search only"
+                    if run.settings.get("condition") == "search_discovery"
+                    else ""
+                ),
+                "Condition code (internal)": run.settings.get("condition", ""),
                 "Replicate ID": run.settings.get("replicate", ""),
                 "Protocol version": run.settings.get("protocol_version", ""),
                 "Run status": run.status,
@@ -198,6 +226,18 @@ def build_experiment_log_rows(db: Session, project: Project):
                 "Created (UTC)": _utc(run.created_at),
                 "Last updated (UTC)": _utc(run.updated_at),
                 "Model used by each agent": model_summary,
+                "Shared model": (
+                    next(iter(set(models.values())))
+                    if len({value for value in models.values() if value}) == 1
+                    else model_summary
+                ),
+                "Paper source": (
+                    "OpenAlex"
+                    if run.settings.get("source_mode") == "openalex"
+                    else "Frozen saved corpus"
+                    if run.settings.get("source_mode") == "saved_corpus"
+                    else run.settings.get("source_mode", "")
+                ),
                 "Temperature": run.settings.get("temperature", ""),
                 "Random seed": run.settings.get("random_seed", ""),
                 "Search query": run.settings.get("search_query", project.question),
@@ -281,11 +321,13 @@ def experiment_log_csv(db: Session, project: Project) -> str:
     rows = build_experiment_log_rows(db, project)
     writer.writerows(
         {
-            key: "'" + value
-            if isinstance(value, str)
-            and value.startswith(("=", "+", "-", "@", "\t", "\r"))
-            else value
-            for key, value in row.items()
+            heading: (
+                "'" + row.get(source_key, "")
+                if isinstance(row.get(source_key, ""), str)
+                and row.get(source_key, "").startswith(("=", "+", "-", "@", "\t", "\r"))
+                else row.get(source_key, "")
+            )
+            for heading, source_key in CSV_EXPORT_MAPPING.items()
         }
         for row in rows
     )
