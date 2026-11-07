@@ -16,7 +16,8 @@ SUMMARY_CSV_HEADERS = [
     "Research question",
     "Experiment label",
     "Experimental condition",
-    "Condition code",
+    "Human review between agents",
+    "Condition code (internal)",
     "Replicate ID",
     "Protocol version",
     "Run status",
@@ -93,9 +94,9 @@ def _mean(metric):
 
 def _condition_label(condition):
     return {
-        "without_intermediate_human_supervision": "Condition A - Autonomous",
-        "with_human_supervision_all_stages": "Condition B - Human supervised",
-        "search_discovery": "Search discovery - corpus preparation",
+        "without_intermediate_human_supervision": "Condition A - Automatic",
+        "with_human_supervision_all_stages": "Condition B - Human review",
+        "search_discovery": "Search only - corpus preparation (not an experiment run)",
     }.get(condition, condition or "")
 
 
@@ -190,7 +191,16 @@ def build_experiment_log_rows(db: Session, project: Project):
                 "Experimental condition": _condition_label(
                     run.settings.get("condition")
                 ),
-                "Condition code": run.settings.get("condition", ""),
+                "Human review between agents": (
+                    "No - automatic progression"
+                    if run.settings.get("condition") == "without_intermediate_human_supervision"
+                    else "Yes - reviewer approves each stage"
+                    if run.settings.get("condition") == "with_human_supervision_all_stages"
+                    else "Not applicable - search only"
+                    if run.settings.get("condition") == "search_discovery"
+                    else ""
+                ),
+                "Condition code (internal)": run.settings.get("condition", ""),
                 "Replicate ID": run.settings.get("replicate", ""),
                 "Protocol version": run.settings.get("protocol_version", ""),
                 "Run status": run.status,
