@@ -73,13 +73,10 @@ class ExperimentLogTests(unittest.TestCase):
         self.assertEqual(
             rows[0]["Human review between agents"], "Yes - reviewer approves each stage"
         )
-        self.assertEqual(
-            rows[0]["Human review between agents"], "Yes - reviewer approves each stage"
-        )
         self.assertEqual(rows[0]["Papers in fixed corpus"], "2")
         self.assertEqual(rows[0]["Corpus fingerprint (SHA-256)"], "abc123")
         self.assertEqual(rows[0]["Run status"], "completed")
-        self.assertEqual(rows[0]["Provider-reported cost"], "")
+        self.assertEqual(rows[0]["Cost reported by provider"], "")
 
     def test_csv_condition_labels_are_plain_language_for_both_conditions(self):
         for number, condition in enumerate(
