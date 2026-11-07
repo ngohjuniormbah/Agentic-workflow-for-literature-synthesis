@@ -13,7 +13,7 @@ Requirements: Python 3.11+, Node.js 20+, npm. OpenAI API requests require intern
 3. In terminal 1: `cd backend && python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && alembic upgrade head && uvicorn app.main:app --host 127.0.0.1 --port 8000`
 4. In terminal 2: `cd backend && . .venv/bin/activate && python -m app.worker`
 5. In terminal 3: `cd frontend && npm install && npm run dev`
-6. Open http://localhost:3000. Use **Model connections → Test connection** before starting a run.
+6. Open http://localhost:3000. The dashboard keeps the four-agent pipeline visible and presents a short setup panel below it: choose the shared model, confirm OpenAlex as the search source, freeze an approved paper corpus, then choose Condition A or B. Use **Test model connection** before starting the first run.
 
 The database-backed worker claims queued runs independently of HTTP requests. It resumes committed workflow checkpoints after a worker restart; calls interrupted before artifact commit may be retried and billed again. SQLite is suitable for a single-machine pilot. Use PostgreSQL for concurrent workers or a shared deployment.
 

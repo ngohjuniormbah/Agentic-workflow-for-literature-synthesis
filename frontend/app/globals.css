@@ -9,3 +9,87 @@
 .connection.offline{color:#a84439}.connection.offline i{background:#c65f52}
 .screening-panel{margin:15px 0;border:1px solid #e5ebe6;border-radius:7px;background:#fbfcfb;padding:12px}.screening-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.screening-head b{font:600 11px 'Manrope';color:#405248}.screening-head p{font-size:9px;color:#87938b;margin:4px 0 0}.screening-head>span{font:9px 'DM Mono';color:#4d795f;white-space:nowrap}.screening-list{max-height:300px;overflow:auto;margin-top:9px}.screening-item{display:flex;gap:9px;align-items:flex-start;border-top:1px solid #edf0ed;padding:9px 2px;cursor:pointer}.screening-item input{margin:2px 0 0;accent-color:#176b53}.screening-item>span{display:grid;gap:4px}.screening-item b{font-size:10px;color:#3c4f43}.screening-item small{font-size:8px;color:#87938b}.screening-item em{font-size:9px;line-height:1.45;color:#6f7e74;font-style:normal}@media(max-width:760px){.screening-head{flex-direction:column;gap:5px}}
 .review-rubric{border:1px solid #e4eae5;border-radius:7px;padding:11px;margin:14px 0}.review-rubric legend{padding:0 5px;font:600 10px 'Manrope';color:#405248}.review-rubric>p{font-size:9px;color:#87938b;margin:0 0 9px}.review-rubric>div{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.review-rubric label{display:grid;gap:5px;font-size:9px;color:#627067}.review-rubric select{height:29px;border:1px solid #dfe7e0;border-radius:5px;padding:0 6px;background:white;color:#415248;font-size:10px}@media(max-width:760px){.review-rubric>div{grid-template-columns:1fr 1fr}}
+
+/* Clear experiment controls and larger, easier-to-read type. */
+.page-heading h1{font-size:34px;line-height:1.2}
+.question{font-size:16px;line-height:1.7;max-width:900px}
+.metadata-row{font-size:14px;gap:24px}
+.pipeline-card{padding:24px 24px 0}
+.pipeline-top h2,.review-heading h2{font-size:19px}
+.pipeline-top p,.review-heading p{font-size:14px;line-height:1.55}
+.stage-copy strong{font-size:15px}
+.stage-overline{font-size:11px}
+.stage-copy small{font-size:12px}
+.pipeline-foot{font-size:14px;min-height:50px}
+.provider-label{font-size:11px}
+.text-button{font-size:14px}
+.experiment-card{padding:24px;margin-top:18px}
+.simple-experiment-card .section-head h2{font:700 22px 'Manrope';margin:0 0 5px}
+.simple-experiment-card .section-head p{font-size:15px;line-height:1.55}
+.simple-setup-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:16px;margin-top:22px}
+.simple-setup-grid>label,.pair-field{display:grid;gap:8px;font-size:15px;font-weight:650;color:#4c5d52}
+.simple-setup-grid select,.pair-field input,.advanced-fields input{height:44px;border:1px solid #d8e1da;border-radius:8px;padding:0 12px;background:#fff;color:#263d30;font-size:15px}
+.simple-setup-grid small,.setup-fact small,.pair-field small{font-size:13px;line-height:1.5;color:#718078}
+.setup-fact{display:grid;align-content:start;gap:8px;border:1px solid #e4eae5;border-radius:9px;padding:14px 16px}
+.setup-fact strong{font-size:14px;color:#56665b}
+.setup-fact span{display:flex;align-items:center;gap:8px;font-size:17px;font-weight:700;color:#245c43}
+.model-test-row{display:flex;align-items:center;gap:12px;margin-top:14px}
+.model-test-row .secondary{height:40px;font-size:14px}
+.model-test-row span{font-size:14px;color:#52675a}
+.corpus-next-step{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:20px;padding:18px 20px;border-radius:9px;background:#f3f8f4;border:1px solid #dce9df}
+.corpus-next-step b{font-size:17px;color:#315f49}
+.corpus-next-step p{font-size:14px;line-height:1.55;color:#64736a;margin:6px 0 0}
+.corpus-next-step .primary,.start-experiment-button{height:48px;font-size:16px;padding:0 20px;white-space:nowrap}
+.pair-field{max-width:420px;margin-top:22px}
+.condition-picker{border:0;padding:0;margin:24px 0 18px}
+.condition-picker legend{font-size:17px;font-weight:700;color:#30483a;margin-bottom:12px}
+.condition-options{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.condition-option{display:flex;align-items:flex-start;gap:12px;border:2px solid #e1e8e2;border-radius:10px;padding:17px;background:#fff;cursor:pointer}
+.condition-option.selected{border-color:#39805d;background:#f4f9f5;box-shadow:0 0 0 2px #39805d16}
+.condition-option input{width:18px;height:18px;margin:2px 0 0;accent-color:#176b53;flex:none}
+.condition-option span{display:grid;gap:7px}
+.condition-option b{font-size:17px;color:#294b38}
+.condition-option small{font-size:14px;line-height:1.5;color:#65746b}
+.advanced-settings{margin-top:20px;border-top:1px solid #e8ede9;padding-top:15px}
+.advanced-settings summary{cursor:pointer;color:#4e6d59;font-size:14px;font-weight:650}
+.advanced-settings>p{font-size:13px;line-height:1.55;color:#748078}
+.advanced-fields{display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;margin-top:15px}
+.advanced-fields label{display:grid;gap:7px;font-size:14px;font-weight:600;color:#526258}
+.experiment-exports{display:flex;flex-wrap:wrap;gap:18px;margin-top:12px}
+.experiment-exports a{font-size:14px;font-weight:650;color:#347153;text-decoration:none}
+.experiment-exports a:hover{text-decoration:underline}
+.run-failure{display:flex;align-items:flex-start;gap:14px;margin-top:17px;padding:18px 20px;border:1px solid #edcbc6;border-radius:10px;background:#fff5f3;color:#73372f}
+.failure-icon{display:grid;place-items:center;width:38px;height:38px;flex:none;border-radius:9px;background:#fbe4e0;color:#a7473d}
+.run-failure>div:nth-child(2){flex:1;min-width:0}
+.run-failure h2{font:700 18px 'Manrope';margin:0 0 6px}
+.run-failure p{font-size:15px;line-height:1.55;margin:0 0 6px;overflow-wrap:anywhere}
+.run-failure small{font-size:13px;line-height:1.5;color:#855c56}
+.run-failure .secondary{height:42px;font-size:14px;flex:none}
+.error-banner{font-size:15px;line-height:1.5}
+.section-head h3{font-size:17px!important}
+.section-head p{font-size:14px!important;line-height:1.5}
+.question-panel{font-size:16px;line-height:1.7}
+.scope strong{font-size:14px}
+.scope p{font-size:14px;line-height:1.65}
+.stat-line,.stat-line b{font-size:14px}
+.tab-row button{font-size:14px}
+.review-note{font-size:14px;min-height:80px}
+.note-label{font-size:14px}
+.paper-title{font-size:15px}
+.paper-meta{font-size:12px}
+.paper-abstract{font-size:14px;line-height:1.6}
+.modal label{font-size:14px}
+.modal input,.modal textarea,.modal select{font-size:15px}
+.modal-foot .primary{font-size:14px}
+@media(max-width:760px){.page-heading h1{font-size:28px}.question{font-size:15px}.simple-setup-grid,.condition-options,.advanced-fields{grid-template-columns:1fr}.pipeline-card{padding:18px 15px 0}.corpus-next-step,.run-failure{align-items:stretch;flex-direction:column}.corpus-next-step .primary,.run-failure .secondary{width:100%}.condition-option b{font-size:16px}.experiment-card{padding:18px 15px}.metadata-row{font-size:13px}}
+.artifact-preview>p,.claim p,.theme-row p,.theme-row small,.draft-preview{font-size:15px;line-height:1.7}
+.claim b,.theme-row b{font-size:15px}
+.claim span,.citation-count,.artifact-info{font-size:13px}
+.artifact-meta{font-size:11px}
+.mini-source-list>div,.screening-head b{font-size:14px}
+.screening-head p,.screening-item em{font-size:13px;line-height:1.55}
+.screening-item b{font-size:14px}
+.screening-item small{font-size:12px}
+.empty-inline b{font-size:15px}
+.empty-inline span,.footer{font-size:13px}
+.review-kicker{font-size:10px}

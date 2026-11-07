@@ -577,6 +577,12 @@ def create_run(project_id: str, body: RunCreate, db: Session = Depends(get_db)):
 @app.get("/api/v1/runs/{run_id}")
 def get_run(run_id: str, db: Session = Depends(get_db)):
     r = run_or_404(db, run_id)
+    failure_event = db.scalar(
+        select(Event)
+        .where(Event.run_id == r.id, Event.type == "stage_failed")
+        .order_by(desc(Event.created_at))
+        .limit(1)
+    )
     artifacts = db.scalars(
         select(Artifact).where(Artifact.run_id == r.id).order_by(Artifact.created_at)
     ).all()
@@ -587,6 +593,15 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
     ).all()
     return {
         **run_view(r),
+        "failure": (
+            {
+                "stage": (failure_event.details or {}).get("stage", r.current_stage),
+                "message": failure_event.message,
+                "created_at": failure_event.created_at,
+            }
+            if r.status == "failed" and failure_event
+            else None
+        ),
         "artifacts": [artifact_view(a) for a in artifacts],
         "reviews": [review_view(x) for x in reviews],
         "papers": [
