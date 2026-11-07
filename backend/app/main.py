@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.orm import Session
 
 from .agents import (
@@ -224,18 +224,26 @@ def health(db: Session = Depends(get_db)):
 
 @app.get("/api/v1/models")
 def models():
+    # Never send credential-like model configuration to the browser.
+    import re
+
+    def safe_model_id(value: str) -> str:
+        candidate = value.strip()
+        if re.search(r"(?i)(sk-[a-z0-9_-]{8,}|api[_-]?key|secret|token)", candidate):
+            return ""
+        return candidate
+
     return {
         "providers": [
             {
                 "id": p.id,
                 "gateway": p.gateway,
-                "configured": p.configured,
-                "model": p.model_id,
+                "configured": p.configured and bool(safe_model_id(p.model_id)),
+                "model": safe_model_id(p.model_id),
             }
             for p in provider_catalog().values()
         ]
     }
-
 
 @app.post("/api/v1/models/{provider_id}/check")
 def check_model(provider_id: str):
@@ -272,6 +280,31 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(p)
     return project_view(p)
+
+
+@app.delete("/api/v1/projects/{project_id}")
+def delete_project(project_id: str, db: Session = Depends(get_db)):
+    project = proj_or_404(db, project_id)
+    active_run = db.scalar(
+        select(Run.id).where(
+            Run.project_id == project.id, Run.status.in_(["queued", "running"])
+        ).limit(1)
+    )
+    if active_run:
+        raise HTTPException(409, "Stop or finish the active run before deleting this project.")
+
+    run_ids = select(Run.id).where(Run.project_id == project.id)
+    db.execute(delete(ErrorAnnotation).where(ErrorAnnotation.run_id.in_(run_ids)))
+    db.execute(delete(EvaluationRecord).where(EvaluationRecord.run_id.in_(run_ids)))
+    db.execute(delete(ReviewRecord).where(ReviewRecord.run_id.in_(run_ids)))
+    db.execute(delete(Artifact).where(Artifact.run_id.in_(run_ids)))
+    db.execute(delete(Event).where(Event.project_id == project.id))
+    db.execute(delete(ReferenceAnnotation).where(ReferenceAnnotation.project_id == project.id))
+    db.execute(delete(Paper).where(Paper.project_id == project.id))
+    db.execute(delete(Run).where(Run.project_id == project.id))
+    db.delete(project)
+    db.commit()
+    return {"deleted": True, "project_id": project.id}
 
 
 @app.patch("/api/v1/projects/{project_id}")
