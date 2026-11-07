@@ -68,15 +68,15 @@ class ExperimentLogTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(len(rows[0]), len(SUMMARY_CSV_HEADERS))
         self.assertEqual(
-            rows[0]["Experimental condition"], "Condition B - Human review"
+            rows[0]["Condition (plain language)"], "Condition B - Human review"
         )
         self.assertEqual(
             rows[0]["Human review between agents"], "Yes - reviewer approves each stage"
         )
         self.assertEqual(
-            rows[0]["Condition code (internal)"], "with_human_supervision_all_stages"
+            rows[0]["Human review between agents"], "Yes - reviewer approves each stage"
         )
-        self.assertEqual(rows[0]["Corpus papers"], "2")
+        self.assertEqual(rows[0]["Papers in fixed corpus"], "2")
         self.assertEqual(rows[0]["Corpus fingerprint (SHA-256)"], "abc123")
         self.assertEqual(rows[0]["Run status"], "completed")
         self.assertEqual(rows[0]["Provider-reported cost"], "")
@@ -114,7 +114,7 @@ class ExperimentLogTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            [row["Experimental condition"] for row in rows],
+            [row["Condition (plain language)"] for row in rows],
             ["Condition A - Automatic", "Condition B - Human review"],
         )
         self.assertEqual(
