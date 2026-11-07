@@ -25,6 +25,7 @@ from .agents import (
 from .config import settings
 from .db import get_db
 from .evaluation import describe, run_metrics
+from .experiment_log import experiment_log_csv
 from .models import (
     Artifact,
     ErrorAnnotation,
@@ -379,6 +380,20 @@ def export_runs(project_id: str, db: Session = Depends(get_db)):
     )
 
 
+@app.get("/api/v1/projects/{project_id}/runs/log.csv")
+def download_experiment_log(project_id: str, db: Session = Depends(get_db)):
+    """Build a plain-language CSV snapshot from every durable run record."""
+    project = proj_or_404(db, project_id)
+    return Response(
+        experiment_log_csv(db, project),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{project.id}-experiment-log.csv"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @app.post("/api/v1/projects/{project_id}/papers/upload", status_code=201)
 async def upload_paper(
     project_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)
@@ -491,6 +506,10 @@ def create_run(project_id: str, body: RunCreate, db: Session = Depends(get_db)):
             provider_config(provider)
         except ProviderError as exc:
             raise HTTPException(exc.status_code, str(exc)) from exc
+    configured_model_ids = {
+        stage: provider_config(provider).model_id
+        for stage, provider in body.models.items()
+    }
     review_policy = EXPERIMENT_CONDITION_POLICIES[body.condition]
     protocol_version = (
         "2.0"
@@ -526,6 +545,7 @@ def create_run(project_id: str, body: RunCreate, db: Session = Depends(get_db)):
             "protocol_version": protocol_version,
             "review_policy": review_policy,
             "model_scope": "one configured model shared by Search, Extraction, Organization, and Synthesis",
+            "model_ids": configured_model_ids,
             "corpus_policy": "frozen source IDs captured by Search at run start",
         },
         status="queued",

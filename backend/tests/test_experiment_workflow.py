@@ -2,6 +2,7 @@ import io
 import unittest
 import uuid
 import zipfile
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from sqlalchemy import create_engine, select
@@ -185,7 +186,11 @@ class WorkflowExperimentTests(unittest.TestCase):
             payload = RunCreate(
                 models=models, source_mode=source_mode, condition=condition
             )
-            with patch.object(main, "provider_config", return_value=object()):
+            with patch.object(
+                main,
+                "provider_config",
+                return_value=SimpleNamespace(model_id="unit-test-model"),
+            ):
                 created = main.create_run(self.project.id, payload, self.session)
             self.assertEqual(created["settings"]["condition"], condition)
             self.assertEqual(created["settings"]["scenario"], condition)
@@ -332,7 +337,11 @@ class WorkflowExperimentTests(unittest.TestCase):
             replicate="R1",
             temperature=0,
         )
-        with patch.object(main, "provider_config", return_value=object()):
+        with patch.object(
+            main,
+            "provider_config",
+            return_value=SimpleNamespace(model_id="unit-test-model"),
+        ):
             response = main.create_run(self.project.id, payload, self.session)
         self.assertEqual(response["status"], "queued")
 
