@@ -128,7 +128,7 @@ def _latest_model_ids(db, run):
     model_ids = {}
     for artifact in artifacts:
         if artifact.model and artifact.model.casefold() != "human correction":
-            model_ids[artifact.stage] = artifact.model
+            model_ids[artifact.stage] = _safe_model_id(artifact.model)
     for stage, model_id in (run.settings.get("model_ids") or {}).items():
         model_ids.setdefault(stage, _safe_model_id(model_id))
     return model_ids
