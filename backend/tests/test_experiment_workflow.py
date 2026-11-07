@@ -132,6 +132,24 @@ class WorkflowExperimentTests(unittest.TestCase):
         self.assertIsNotNone(self.session.get(Project, other.id))
         self.assertIsNotNone(self.session.get(Paper, other_paper.id))
 
+    def test_run_view_redacts_credentials_misconfigured_as_model_ids(self):
+        self.run.settings["model_ids"] = {
+            "search": "OPENROUTER_API_KEY: sk-or-v1-credential-value",
+            "extraction": "gpt-4o-mini",
+        }
+
+        result = main.run_view(self.run)
+
+        self.assertEqual(
+            result["settings"]["model_ids"]["search"],
+            "Invalid model ID (credential redacted)",
+        )
+        self.assertEqual(result["settings"]["model_ids"]["extraction"], "gpt-4o-mini")
+        self.assertEqual(
+            main.safe_model_id("sk-or-v1-credential-value"),
+            "",
+        )
+
     def test_run_detail_exposes_the_saved_stage_failure_for_the_dashboard(self):
         self.run.status = "failed"
         failure = Event(
