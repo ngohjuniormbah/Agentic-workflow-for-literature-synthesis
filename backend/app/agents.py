@@ -24,7 +24,10 @@ class Provider:
 
     @property
     def configured(self) -> bool:
-        return bool(self.api_key.strip() and self.model_id.strip())
+        model_id_is_credential = bool(
+            re.search(r"(?i)(sk-[a-z0-9_-]{8,}|api[_-]?key|secret|token)", self.model_id)
+        )
+        return bool(self.api_key.strip() and self.model_id.strip() and not model_id_is_credential)
 
 
 def provider_catalog() -> dict[str, Provider]:
@@ -82,6 +85,11 @@ def provider_config(name: str) -> Provider:
     if not provider.api_key.strip():
         key_name = "OPENAI_API_KEY" if name == "openai" else "OPENROUTER_API_KEY"
         raise ProviderError(f"{name} has no API key configured ({key_name}).", 503)
+    if re.search(r"(?i)(sk-[a-z0-9_-]{8,}|api[_-]?key|secret|token)", provider.model_id):
+        raise ProviderError(
+            f"{name} model ID setting appears to contain a credential. Put credentials only in the API-key setting and enter a model ID.",
+            422,
+        )
     if not provider.model_id:
         model_key = {
             "openai": "OPENAI_MODEL (OPENAI_MODEL_ID is supported for older configurations)",
