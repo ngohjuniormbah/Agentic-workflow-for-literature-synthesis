@@ -96,6 +96,27 @@ class WorkflowExperimentTests(unittest.TestCase):
             RunCreate(models={}, random_seed=2**32)
         self.assertIsNone(ReviewAction(action="approve").ratings)
 
+    def test_run_detail_exposes_the_saved_stage_failure_for_the_dashboard(self):
+        self.run.status = "failed"
+        failure = Event(
+            id=str(uuid.uuid4()),
+            project_id=self.project.id,
+            run_id=self.run.id,
+            type="stage_failed",
+            message="Search failed: provider rejected the model ID.",
+            details={"stage": "search"},
+        )
+        self.session.add(failure)
+        self.session.commit()
+
+        result = main.get_run(self.run.id, self.session)
+
+        self.assertEqual(result["failure"]["stage"], "search")
+        self.assertEqual(
+            result["failure"]["message"],
+            "Search failed: provider rejected the model ID.",
+        )
+
     def test_all_four_experiment_conditions_select_the_documented_review_gates(self):
         expected = {
             "without_intermediate_human_supervision": ("none", []),
