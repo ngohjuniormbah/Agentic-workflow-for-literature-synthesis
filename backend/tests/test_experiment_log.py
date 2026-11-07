@@ -67,9 +67,15 @@ class ExperimentLogTests(unittest.TestCase):
         self.assertIn("experiment-log.csv", response.headers["content-disposition"])
         self.assertEqual(len(rows), 1)
         self.assertEqual(len(rows[0]), len(SUMMARY_CSV_HEADERS))
-        self.assertEqual(rows[0]["Experimental condition"], "Condition B - Human review")
-        self.assertEqual(rows[0]["Human review between agents"], "Yes - reviewer approves each stage")
-        self.assertEqual(rows[0]["Condition code (internal)"], "with_human_supervision_all_stages")
+        self.assertEqual(
+            rows[0]["Experimental condition"], "Condition B - Human review"
+        )
+        self.assertEqual(
+            rows[0]["Human review between agents"], "Yes - reviewer approves each stage"
+        )
+        self.assertEqual(
+            rows[0]["Condition code (internal)"], "with_human_supervision_all_stages"
+        )
         self.assertEqual(rows[0]["Corpus papers"], "2")
         self.assertEqual(rows[0]["Corpus fingerprint (SHA-256)"], "abc123")
         self.assertEqual(rows[0]["Run status"], "completed")
@@ -89,13 +95,23 @@ class ExperimentLogTests(unittest.TestCase):
                     project_id=self.project.id,
                     status="completed",
                     current_stage="synthesis",
-                    models={stage: "openai" for stage in ("search", "extraction", "organization", "synthesis")},
+                    models={
+                        stage: "openai"
+                        for stage in (
+                            "search",
+                            "extraction",
+                            "organization",
+                            "synthesis",
+                        )
+                    },
                     settings={"condition": condition, "replicate": f"pair-{number}"},
                 )
             )
         self.session.commit()
 
-        rows = list(csv.DictReader(io.StringIO(experiment_log_csv(self.session, self.project))))
+        rows = list(
+            csv.DictReader(io.StringIO(experiment_log_csv(self.session, self.project)))
+        )
 
         self.assertEqual(
             [row["Experimental condition"] for row in rows],
