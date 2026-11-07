@@ -1,6 +1,6 @@
 'use client';
 import {useCallback,useEffect,useMemo,useState} from 'react';
-import {Activity,ArrowLeft,ArrowRight,BookOpen,Check,ChevronDown,CircleHelp,Clock3,Database,Download,FileSearch,FileText,FlaskConical,Layers3,LoaderCircle,Plus,RefreshCw,Search,Settings2,ShieldCheck,Sparkles,TriangleAlert,X} from 'lucide-react';
+import {Activity,ArrowLeft,ArrowRight,BookOpen,Check,ChevronDown,CircleHelp,Clock3,Database,Download,FileSearch,FileText,FlaskConical,Layers3,LoaderCircle,Plus,RefreshCw,Search,Settings2,ShieldCheck,Sparkles,Trash2,TriangleAlert,X} from 'lucide-react';
 import {api,Artifact,Paper,Project,Provider,Run,STAGES} from '@/lib/api';
 const stageTitle:Record<string,string>={search:'Search',extraction:'Extraction',organization:'Organization',synthesis:'Synthesis'};
 const conditionTitles:Record<string,string>={search_discovery:'Search and save papers',without_intermediate_human_supervision:'Condition A · Automatic',with_human_supervision_all_stages:'Condition B · Human review',full_audit:'Legacy: review every stage',targeted_retry:'Legacy: Search + final review',endpoint_oversight:'Legacy: final synthesis only',midpoint_gating:'Legacy: after Extraction'};
