@@ -13,64 +13,72 @@ from .models import Artifact, Project, ReviewRecord, Run
 
 SUMMARY_CSV_HEADERS = [
     "Run ID",
-    "Project",
+    "Project title",
     "Research question",
-    "Experiment label",
-    "Experimental condition",
+    "Pair ID",
+    "Condition (plain language)",
     "Human review between agents",
-    "Condition code (internal)",
-    "Replicate ID",
-    "Protocol version",
-    "Run status",
-    "Current stage",
-    "Created (UTC)",
-    "Last updated (UTC)",
-    "Model used by each agent",
-    "Temperature",
-    "Random seed",
-    "Search query",
-    "Corpus papers",
+    "Model shared by four agents",
+    "Paper source",
+    "Papers in fixed corpus",
     "Corpus fingerprint (SHA-256)",
-    "Search candidates retrieved",
-    "Duplicate records removed",
-    "Papers included by reviewer",
+    "Run status",
+    "Started (UTC)",
+    "Updated (UTC)",
+    "Search candidates found",
+    "Papers approved by reviewer",
     "Papers excluded by reviewer",
-    "Search Precision@10 (mean)",
-    "Search Recall@10 (mean)",
-    "Search reference evaluations",
-    "Extraction papers processed",
-    "Extraction fields present",
-    "Extraction fields possible",
-    "Extraction completeness (%) - not accuracy",
+    "Extraction completeness (% fields present; not accuracy)",
     "Evidence quotes captured",
-    "Organization themes",
-    "Organization agreements",
-    "Organization disagreements",
-    "Organization research gaps",
-    "Synthesis words",
-    "Verified citations",
-    "Rejected citations",
-    "Input tokens",
-    "Output tokens",
-    "Total tokens",
-    "Provider-reported cost",
-    "Cost currency",
-    "Agent time by stage (mean seconds)",
-    "Total agent execution seconds",
-    "Total elapsed seconds",
+    "Themes organized",
+    "Synthesis length (words)",
+    "Citations verified",
+    "Citations rejected as unsupported",
+    "Independent evaluation scores (mean; stage and measure)",
+    "Total tokens used",
+    "Cost reported by provider",
+    "Total run time (seconds)",
     "Human review count",
-    "Measured human review seconds",
-    "Reviews without measured time",
-    "Review decisions",
-    "Saved-corpus restarts",
-    "Independent evaluation scores (mean; stage and dimension)",
-    "Error count",
-    "Corrected errors",
-    "Propagated errors",
-    "Error counts by type",
-    "Failure count",
-    "Evidence package URL",
+    "Human review time (seconds)",
+    "Errors recorded",
+    "Failed stages",
+    "Evidence package",
 ]
+
+
+CSV_EXPORT_MAPPING = {
+    "Run ID": "Run ID",
+    "Project title": "Project",
+    "Research question": "Research question",
+    "Pair ID": "Replicate ID",
+    "Condition (plain language)": "Experimental condition",
+    "Human review between agents": "Human review between agents",
+    "Model shared by four agents": "Shared model",
+    "Paper source": "Paper source",
+    "Papers in fixed corpus": "Corpus papers",
+    "Corpus fingerprint (SHA-256)": "Corpus fingerprint (SHA-256)",
+    "Run status": "Run status",
+    "Started (UTC)": "Created (UTC)",
+    "Updated (UTC)": "Last updated (UTC)",
+    "Search candidates found": "Search candidates retrieved",
+    "Papers approved by reviewer": "Papers included by reviewer",
+    "Papers excluded by reviewer": "Papers excluded by reviewer",
+    "Extraction completeness (% fields present; not accuracy)": "Extraction completeness (%) - not accuracy",
+    "Evidence quotes captured": "Evidence quotes captured",
+    "Themes organized": "Organization themes",
+    "Synthesis length (words)": "Synthesis words",
+    "Citations verified": "Verified citations",
+    "Citations rejected as unsupported": "Rejected citations",
+    "Independent evaluation scores (mean; stage and measure)": "Independent evaluation scores (mean; stage and dimension)",
+    "Total tokens used": "Total tokens",
+    "Cost reported by provider": "Provider-reported cost",
+    "Total run time (seconds)": "Total elapsed seconds",
+    "Human review count": "Human review count",
+    "Human review time (seconds)": "Measured human review seconds",
+    "Errors recorded": "Error count",
+    "Failed stages": "Failure count",
+    "Evidence package": "Evidence package URL",
+}
 
 
 def _utc(value):
@@ -218,6 +226,18 @@ def build_experiment_log_rows(db: Session, project: Project):
                 "Created (UTC)": _utc(run.created_at),
                 "Last updated (UTC)": _utc(run.updated_at),
                 "Model used by each agent": model_summary,
+                "Shared model": (
+                    next(iter(set(models.values())))
+                    if len({value for value in models.values() if value}) == 1
+                    else model_summary
+                ),
+                "Paper source": (
+                    "OpenAlex"
+                    if run.settings.get("source_mode") == "openalex"
+                    else "Frozen saved corpus"
+                    if run.settings.get("source_mode") == "saved_corpus"
+                    else run.settings.get("source_mode", "")
+                ),
                 "Temperature": run.settings.get("temperature", ""),
                 "Random seed": run.settings.get("random_seed", ""),
                 "Search query": run.settings.get("search_query", project.question),
@@ -301,11 +321,13 @@ def experiment_log_csv(db: Session, project: Project) -> str:
     rows = build_experiment_log_rows(db, project)
     writer.writerows(
         {
-            key: "'" + value
-            if isinstance(value, str)
-            and value.startswith(("=", "+", "-", "@", "\t", "\r"))
-            else value
-            for key, value in row.items()
+            heading: (
+                "'" + row.get(source_key, "")
+                if isinstance(row.get(source_key, ""), str)
+                and row.get(source_key, "").startswith(("=", "+", "-", "@", "\t", "\r"))
+                else row.get(source_key, "")
+            )
+            for heading, source_key in CSV_EXPORT_MAPPING.items()
         }
         for row in rows
     )
