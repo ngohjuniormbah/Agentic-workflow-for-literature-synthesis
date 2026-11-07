@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import os
+import re
 import uuid
 import zipfile
 from contextlib import asynccontextmanager
@@ -194,14 +195,27 @@ def project_view(p):
     }
 
 
+def safe_model_id(value):
+    candidate = str(value or "").strip()
+    if re.search(r"(?i)(sk-[a-z0-9_-]{8,}|api[_-]?key|secret|token)", candidate):
+        return ""
+    return candidate
+
+
 def run_view(r):
+    safe_settings = dict(r.settings or {})
+    if isinstance(safe_settings.get("model_ids"), dict):
+        safe_settings["model_ids"] = {
+            stage: safe_model_id(model_id) or "Invalid model ID (credential redacted)"
+            for stage, model_id in safe_settings["model_ids"].items()
+        }
     return {
         "id": r.id,
         "project_id": r.project_id,
         "status": r.status,
         "current_stage": r.current_stage,
         "models": r.models,
-        "settings": r.settings,
+        "settings": safe_settings,
         "created_at": r.created_at,
         "updated_at": r.updated_at,
     }
@@ -225,14 +239,6 @@ def health(db: Session = Depends(get_db)):
 @app.get("/api/v1/models")
 def models():
     # Never send credential-like model configuration to the browser.
-    import re
-
-    def safe_model_id(value: str) -> str:
-        candidate = value.strip()
-        if re.search(r"(?i)(sk-[a-z0-9_-]{8,}|api[_-]?key|secret|token)", candidate):
-            return ""
-        return candidate
-
     return {
         "providers": [
             {
