@@ -2,6 +2,7 @@
 
 import csv
 import io
+import re
 from datetime import timezone
 
 from sqlalchemy import select
@@ -111,6 +112,13 @@ def _score_summary(quality):
     return "; ".join(entries)
 
 
+def _safe_model_id(value):
+    candidate = str(value or "").strip()
+    if re.search(r"(?i)(sk-[a-z0-9_-]{8,}|api[_-]?key|secret|token)", candidate):
+        return "Invalid model ID (credential redacted)"
+    return candidate
+
+
 def _latest_model_ids(db, run):
     artifacts = db.scalars(
         select(Artifact)
@@ -122,7 +130,7 @@ def _latest_model_ids(db, run):
         if artifact.model and artifact.model.casefold() != "human correction":
             model_ids[artifact.stage] = artifact.model
     for stage, model_id in (run.settings.get("model_ids") or {}).items():
-        model_ids.setdefault(stage, model_id)
+        model_ids.setdefault(stage, _safe_model_id(model_id))
     return model_ids
 
 
