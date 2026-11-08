@@ -9,6 +9,7 @@ The stages have separate responsibilities: Search retrieves and deduplicates can
 Requirements: Python 3.11+, Node.js 20+, npm. OpenAI API requests require internet access and are billed separately from a ChatGPT subscription. You may run the application locally while calling OpenAI remotely.
 
 1. Copy `backend/.env.example` to `backend/.env` and set `OPENAI_API_KEY` and `OPENAI_MODEL` to your API key and exact supported model ID. Keep the key in the backend environment; never put it in the frontend.
+   Extraction processes the frozen corpus in small batches (`EXTRACTION_BATCH_SIZE=2` by default) to keep provider requests bounded; batch size and count are recorded with the extraction artifact.
 2. Copy `frontend/.env.local.example` to `frontend/.env.local`.
 3. In terminal 1: `cd backend && python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && alembic upgrade head && uvicorn app.main:app --host 127.0.0.1 --port 8000`
 4. In terminal 2: `cd backend && . .venv/bin/activate && python -m app.worker`

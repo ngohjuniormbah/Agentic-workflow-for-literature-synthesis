@@ -440,20 +440,114 @@ def execute_stage(db: Session, project: Project, run: Run, stage: str):
             "research_gaps",
             "contributions",
         ]
-        raw_content, model, usage = json_answer(
-            provider,
-            "Research question: "
-            + project.question
-            + "\nSources: "
-            + json.dumps(compact, ensure_ascii=False)
-            + (
-                "\nReviewer feedback: " + run.settings.get("review_note", "")
-                if run.settings.get("review_note")
-                else ""
-            ),
-            "For each input paper, extract the specified research fields. Never infer missing information: write 'Not reported' when unavailable. Return JSON {papers:[{paper_id,fields:{research_objective,research_problem,research_question,methodology,research_design,dataset_or_sample,data_collection_methods,analysis_methods,findings,limitations,research_gaps,contributions},evidence:[{field,quote,page_or_section}]}]}. Every substantive non-empty field must have at least one verbatim evidence quote tied to that same field and paper. Quotes must be copied exactly from the provided full text or abstract. Do not invent page or section references; use null when the source does not expose them. The source has an explicit source basis (full_text or abstract).",
-            temperature=run.settings.get("temperature", 0.0),
+        # Keep each request small enough for hosted models to finish reliably. A single
+        # request containing 25 full texts can exceed provider latency limits. The
+        # deterministic paper order and batch size are recorded with the artifact.
+        batch_size = max(1, min(int(settings.extraction_batch_size), 5))
+        system = (
+            "For each input paper, extract the specified research fields. Never infer "
+            "missing information: write 'Not reported' when unavailable. Return JSON "
+            "{papers:[{paper_id,fields:{research_objective,research_problem,research_question,"
+            "methodology,research_design,dataset_or_sample,data_collection_methods,"
+            "analysis_methods,findings,limitations,research_gaps,contributions},"
+            "evidence:[{field,quote,page_or_section}]}]}. Every substantive non-empty "
+            "field must have at least one verbatim evidence quote tied to that same field "
+            "and paper. Quotes must be copied exactly from the provided full text or "
+            "abstract. Do not invent page or section references; use null when the source "
+            "does not expose them. The source has an explicit source basis (full_text or abstract)."
         )
+        response_papers = []
+        response_claims = []
+        usage_batches = []
+        models = []
+        response_format = None
+        for offset in range(0, len(compact), batch_size):
+            batch = compact[offset : offset + batch_size]
+            prompt = (
+                "Research question: "
+                + project.question
+                + "\nSources: "
+                + json.dumps(batch, ensure_ascii=False)
+                + (
+                    "\nReviewer feedback: " + run.settings.get("review_note", "")
+                    if run.settings.get("review_note")
+                    else ""
+                )
+            )
+            batch_response, batch_model, batch_usage = json_answer(
+                provider,
+                prompt,
+                system,
+                temperature=run.settings.get("temperature", 0.0),
+            )
+            models.append(batch_model)
+            usage_batches.append(batch_usage)
+            batch_format = (
+                "papers"
+                if isinstance(batch_response.get("papers"), list)
+                else "claims"
+                if isinstance(batch_response.get("claims"), list)
+                else None
+            )
+            if batch_format is None:
+                raise WorkflowError(
+                    "Extraction response must contain a papers or claims array. Retry this stage."
+                )
+            if response_format is not None and batch_format != response_format:
+                raise WorkflowError(
+                    "Extraction batches returned inconsistent response formats. Retry this stage."
+                )
+            response_format = batch_format
+            if batch_format == "papers":
+                response_papers.extend(batch_response["papers"])
+            else:
+                response_claims.extend(batch_response["claims"])
+
+        def sum_usage(key):
+            values = [
+                batch.get("usage", {}).get(key)
+                for batch in usage_batches
+                if isinstance(batch.get("usage"), dict)
+            ]
+            numeric = [value for value in values if isinstance(value, (int, float))]
+            return sum(numeric) if numeric else None
+
+        model = models[0]
+        usage = {
+            "usage": {
+                key: sum_usage(key)
+                for key in (
+                    "prompt_tokens",
+                    "completion_tokens",
+                    "total_tokens",
+                    "cost",
+                )
+                if sum_usage(key) is not None
+            },
+            "prompt_sha256": (
+                usage_batches[0].get("prompt_sha256")
+                if len(usage_batches) == 1
+                else hashlib.sha256(
+                    "".join(
+                        batch.get("prompt_sha256", "") for batch in usage_batches
+                    ).encode()
+                ).hexdigest()
+            ),
+            "request_duration_ms": sum(
+                batch.get("request_duration_ms", 0)
+                for batch in usage_batches
+                if isinstance(batch.get("request_duration_ms", 0), (int, float))
+            ),
+        }
+        if len(set(models)) > 1:
+            raise WorkflowError(
+                "The provider served different model IDs within one extraction stage."
+            )
+        raw_content = {
+            response_format: response_papers
+            if response_format == "papers"
+            else response_claims
+        }
         by_id = {p.id: p for p in sources}
         if isinstance(raw_content.get("papers"), list):
             normalized_papers = []
@@ -560,6 +654,12 @@ def execute_stage(db: Session, project: Project, run: Run, stage: str):
                 "claims": accepted_claims,
                 "rejected_evidence_count": rejected_evidence,
                 "unsupported_field_count": unsupported_fields,
+                "processing": {
+                    "strategy": "bounded_batches",
+                    "batch_size": batch_size,
+                    "batch_count": len(usage_batches),
+                    "paper_count": len(compact),
+                },
             }
         else:
             # Read older model responses from local pilots without treating them as fully structured records.
@@ -589,6 +689,12 @@ def execute_stage(db: Session, project: Project, run: Run, stage: str):
                 "claims": accepted,
                 "rejected_claim_count": max(0, len(raw_claims) - len(accepted)),
                 "legacy_unstructured_response": True,
+                "processing": {
+                    "strategy": "bounded_batches",
+                    "batch_size": batch_size,
+                    "batch_count": len(usage_batches),
+                    "paper_count": len(compact),
+                },
             }
     elif stage == "organization":
         extraction = artifact_payload(db, run, "extraction")
@@ -676,7 +782,7 @@ def execute_stage(db: Session, project: Project, run: Run, stage: str):
                 "prompt_sha256": usage.get("prompt_sha256"),
                 "provider": provider,
                 "model": model,
-                "prompt_version": "1.1" if stage == "search" else "1.0",
+                "prompt_version": "1.1" if stage in {"search", "extraction"} else "1.0",
                 "temperature": run.settings.get("temperature", 0.0),
                 "request_duration_ms": usage.get("request_duration_ms"),
             }
