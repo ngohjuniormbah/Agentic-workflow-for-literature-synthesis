@@ -1,4 +1,5 @@
 import io
+import json
 import unittest
 import uuid
 import zipfile
@@ -530,6 +531,72 @@ class WorkflowExperimentTests(unittest.TestCase):
         self.assertEqual(extraction.content["_telemetry"]["usage"]["total_tokens"], 20)
         self.assertEqual(extraction.content["_telemetry"]["prompt_sha256"], "abc123")
         self.assertEqual(self.run.settings["source_paper_ids"], [self.paper.id])
+
+    def test_extraction_splits_saved_papers_into_bounded_batches_and_aggregates_usage(
+        self,
+    ):
+        extra_papers = [
+            Paper(
+                id=str(uuid.uuid4()),
+                project_id=self.project.id,
+                run_id=None,
+                title=f"Frozen paper {index}",
+                authors=[],
+                year=2024,
+                doi=None,
+                url="",
+                abstract=f"Abstract evidence for paper {index}.",
+                full_text="",
+                venue="",
+                citation_count=0,
+            )
+            for index in range(2, 6)
+        ]
+        self.session.add_all(extra_papers)
+        paper_ids = [self.paper.id, *(paper.id for paper in extra_papers)]
+        self.run.settings = {**self.run.settings, "source_paper_ids": paper_ids}
+        self.session.commit()
+        calls = []
+
+        def fake_json_answer(_provider, prompt, _system, **_kwargs):
+            sources_json = prompt.split("\nSources: ", 1)[1]
+            batch = json.loads(sources_json)
+            calls.append(batch)
+            return (
+                {
+                    "papers": [
+                        {"paper_id": paper["id"], "fields": {}, "evidence": []}
+                        for paper in batch
+                    ]
+                },
+                "openai-test-model",
+                {
+                    "usage": {"total_tokens": 10},
+                    "prompt_sha256": f"batch-{len(calls)}",
+                    "request_duration_ms": 20,
+                },
+            )
+
+        with patch.object(workflow, "json_answer", side_effect=fake_json_answer):
+            extraction = workflow.execute_stage(
+                self.session, self.project, self.run, "extraction"
+            )
+
+        self.assertEqual([len(batch) for batch in calls], [2, 2, 1])
+        self.assertEqual(
+            {paper["id"] for batch in calls for paper in batch}, set(paper_ids)
+        )
+        self.assertEqual(len(extraction.content["papers"]), 5)
+        self.assertEqual(
+            extraction.content["processing"],
+            {
+                "strategy": "bounded_batches",
+                "batch_size": 2,
+                "batch_count": 3,
+                "paper_count": 5,
+            },
+        )
+        self.assertEqual(extraction.content["_telemetry"]["usage"]["total_tokens"], 30)
 
     def test_openalex_search_is_not_skipped_when_project_has_existing_papers(self):
         self.run.settings = {"source_mode": "openalex", "max_papers": 25}
