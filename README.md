@@ -58,3 +58,35 @@ Copy `.env.example` to `.env`, set strong unique secrets and model configuration
 ## Verification
 
 Install validation tools with `cd backend && . .venv/bin/activate && pip install -r requirements-dev.txt`. Backend checks: `python -m pytest -q` and `ruff check app tests`. Frontend checks: `cd frontend && npm run build`. A successful build does not validate external credentials; use the in-app connection check and complete one small-corpus run under each condition before collecting formal study data.
+
+
+## Research-focused experiment exports
+
+When a run reaches `completed`, the Evaluation & Records panel provides three downloads:
+
+- **Six-outcome CSV** (`/api/v1/runs/{run_id}/research-summary.csv`): one row for the run, with six research outcomes plus run identifiers and controls.
+- **Five research tables** (`/api/v1/runs/{run_id}/research-tables.zip`): linked CSV datasets for run configuration, independent quality evaluations, recorded evidence/error annotations, human interventions, and system performance.
+- **Full evidence package** (`/api/v1/runs/{run_id}/evidence-package`): original artifacts, protocol, corpus manifest, reviews, evaluations, errors, events, and metrics.
+
+### Six primary outcomes in the summary CSV
+
+1. `extraction_accuracy_mean_1_to_5`: mean of independent extraction-stage scores using `factual_accuracy`, `accuracy`, or `semantic_accuracy`.
+2. `extraction_field_presence_rate_percent`: proportion of expected extraction fields that are non-empty in the generated extraction. This is a **field-presence proxy**, not semantic accuracy or verified completeness.
+3. `evidence_traceability_mean_1_to_5`: mean of independent extraction-stage scores using `evidence_support`, `evidence_traceability`, `evidence_fidelity`, or `source_fidelity`.
+4. `organization_quality_mean_1_to_5`: mean of independent organization-stage scores using `organization_quality`, `theme_quality`, `comparison_quality`, `gap_identification`, or `overall_quality`.
+5. `literature_synthesis_quality_mean_1_to_5`: mean of independent synthesis-stage scores using `synthesis_quality`, `factual_accuracy`, `critical_analysis`, `academic_coherence`, `citation_correctness`, or `overall_quality`.
+6. `human_review_time_minutes`: sum of measured review durations. Autonomous runs report zero intermediate-review minutes; supervised runs with missing review timing leave the value blank.
+
+Quality scores are **not generated automatically** and are never inferred from workflow approval. Enter independent evaluator scores in the Evaluation & Records panel using a consistent, versioned rubric. Suggested score keys are shown beside the evaluation form. Unrecorded scores remain blank. Scores must be grounded in source evidence and, for extraction accuracy, checked against independently prepared reference annotations where possible.
+
+### Five linked research tables
+
+| File | Purpose |
+|---|---|
+| `experiment_runs.csv` | Run identity, condition, model, corpus fingerprint, six outcomes, protocol settings, and status. |
+| `quality_evaluation.csv` | One row per evaluator, artifact, and scored dimension. |
+| `claim_evidence.csv` | Evidence references supplied by evaluators and structured error annotations actually recorded. |
+| `human_interventions.csv` | Review decisions, corrections, comments, and measured review duration. |
+| `system_performance.csv` | Token usage, provider-reported cost, machine time, elapsed time, retries, and failures. |
+
+Join the five tables using `run_id`; use `artifact_id` and `evaluation_id` for finer-grained provenance. Empty values mean not measured or not recorded, not zero. Do not treat field presence, generated quote counts, citation counts, or workflow approvals as independent quality scores.
