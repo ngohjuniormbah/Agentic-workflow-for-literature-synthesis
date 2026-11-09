@@ -27,6 +27,7 @@ from .config import settings
 from .db import get_db
 from .evaluation import describe, run_metrics
 from .experiment_log import experiment_log_csv
+from .research_exports import run_research_tables_zip, run_summary_csv
 from .models import (
     Artifact,
     ErrorAnnotation,
@@ -1136,6 +1137,38 @@ def list_error_annotations(run_id: str, db: Session = Depends(get_db)):
 @app.get("/api/v1/runs/{run_id}/metrics")
 def get_run_metrics(run_id: str, db: Session = Depends(get_db)):
     return run_metrics(db, run_or_404(db, run_id))
+
+
+@app.get("/api/v1/runs/{run_id}/research-summary.csv")
+def download_run_research_summary(run_id: str, db: Session = Depends(get_db)):
+    """Download the six-outcome research summary for one completed run."""
+    run = run_or_404(db, run_id)
+    if run.status != "completed":
+        raise HTTPException(409, "Research summary is available after the run is completed.")
+    return Response(
+        run_summary_csv(db, run),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{run.id}-six-research-outcomes.csv"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.get("/api/v1/runs/{run_id}/research-tables.zip")
+def download_run_research_tables(run_id: str, db: Session = Depends(get_db)):
+    """Download five linked, analysis-ready CSV tables for one completed run."""
+    run = run_or_404(db, run_id)
+    if run.status != "completed":
+        raise HTTPException(409, "Research tables are available after the run is completed.")
+    return Response(
+        run_research_tables_zip(db, run),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{run.id}-research-tables.zip"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.post("/api/v1/projects/{project_id}/compare")
