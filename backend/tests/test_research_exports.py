@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from app import main
 from app.db import Base
 from app.models import Artifact, EvaluationRecord, Project, ReviewRecord, Run
+from app.schemas import RunResultRecordCreate
 from app.research_exports import (
     PRIMARY_HEADERS,
     build_five_tables,
@@ -128,6 +129,49 @@ class ResearchExportTests(unittest.TestCase):
         self.assertIsNone(summary["evidence_traceability_mean_1_to_5"])
         self.assertIsNone(summary["organization_quality_mean_1_to_5"])
         self.assertIsNone(summary["literature_synthesis_quality_mean_1_to_5"])
+
+    def test_compact_result_record_saves_and_updates_five_scores(self):
+        body = RunResultRecordCreate(
+            evaluator_id="researcher",
+            rubric_version="rubric-v1",
+            extraction_accuracy=4,
+            extraction_completeness=3,
+            evidence_traceability=5,
+            organization_quality=4,
+            synthesis_quality=5,
+            comments="Ratings checked against the source artifacts.",
+        )
+        response = main.save_run_result_record(self.run.id, body, self.session)
+        self.assertEqual(set(response["saved_stages"]), {"extraction", "organization", "synthesis"})
+
+        summary = build_run_summary(self.session, self.run)
+        self.assertEqual(summary["extraction_accuracy_mean_1_to_5"], 4.0)
+        self.assertEqual(summary["extraction_completeness_score_mean_1_to_5"], 3.0)
+        self.assertEqual(summary["evidence_traceability_mean_1_to_5"], 5.0)
+        self.assertEqual(summary["organization_quality_mean_1_to_5"], 4.0)
+        self.assertEqual(summary["literature_synthesis_quality_mean_1_to_5"], 5.0)
+
+        body.extraction_accuracy = 2
+        response = main.save_run_result_record(self.run.id, body, self.session)
+        self.assertEqual(set(response["saved_stages"]), {"extraction", "organization", "synthesis"})
+        rows = self.session.query(EvaluationRecord).filter_by(
+            run_id=self.run.id, evaluator_id="researcher", rubric_version="rubric-v1"
+        ).all()
+        self.assertEqual(len(rows), 3)
+        updated = build_run_summary(self.session, self.run)
+        self.assertEqual(updated["extraction_accuracy_mean_1_to_5"], 2.0)
+
+    def test_compact_result_record_rejects_incomplete_run(self):
+        self.run.status = "running"
+        self.session.commit()
+        body = RunResultRecordCreate(
+            evaluator_id="researcher",
+            rubric_version="rubric-v1",
+            synthesis_quality=4,
+        )
+        with self.assertRaises(HTTPException) as context:
+            main.save_run_result_record(self.run.id, body, self.session)
+        self.assertEqual(context.exception.status_code, 409)
 
     def test_five_linked_tables_are_created_and_join_on_run_id(self):
         tables = build_five_tables(self.session, self.run)
