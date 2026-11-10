@@ -369,6 +369,45 @@ class WorkflowExperimentTests(unittest.TestCase):
         self.assertEqual(citations, [valid_id])
         self.assertEqual(rejected, [unverified_id])
 
+    def test_organization_claim_payload_removes_duplicate_paper_fields_and_telemetry(self):
+        extraction = {
+            "papers": [{"paper_id": "paper-1", "fields": {"methodology": "survey"}}],
+            "claims": [
+                {
+                    "paper_id": "paper-1",
+                    "field": "methodology",
+                    "claim": "A survey design was used.",
+                    "quote": "The study used a survey design with participants.",
+                    "page_or_section": "Methods",
+                    "source_basis": "full_text",
+                    "internal_duplicate": "must not be sent",
+                }
+            ],
+            "processing": {"batch_count": 5},
+            "_telemetry": {"total_tokens": 12345},
+        }
+
+        compact = workflow.organization_claim_payload(extraction)
+
+        self.assertEqual(
+            compact,
+            [{
+                "paper_id": "paper-1",
+                "field": "methodology",
+                "claim": "A survey design was used.",
+                "quote": "The study used a survey design with participants.",
+                "page_or_section": "Methods",
+                "source_basis": "full_text",
+            }],
+        )
+        self.assertNotIn("papers", compact[0])
+        self.assertNotIn("processing", compact[0])
+        self.assertNotIn("_telemetry", compact[0])
+
+    def test_organization_claim_payload_rejects_missing_claim_list(self):
+        with self.assertRaises(workflow.WorkflowError):
+            workflow.organization_claim_payload({"papers": []})
+
     def test_organization_drops_themes_and_comparisons_without_valid_evidence_indices(
         self,
     ):
