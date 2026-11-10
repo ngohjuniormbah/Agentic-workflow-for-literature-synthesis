@@ -266,6 +266,35 @@ def validate_organization(content, claim_count):
     }
 
 
+def organization_claim_payload(extraction):
+    """Return only the evidence claims needed by organization, preserving their indices.
+
+    The extraction artifact also contains per-paper fields and telemetry. Sending
+    that duplicated material to the organization model wastes context and can cause
+    long requests. The claim list retains each claim's paper and source provenance.
+    """
+    claims = extraction.get("claims")
+    if not isinstance(claims, list):
+        raise WorkflowError("Extraction artifact does not contain a claims array.")
+    compact = []
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            raise WorkflowError(
+                f"Extraction claim at index {index} is not a structured object."
+            )
+        compact.append(
+            {
+                "paper_id": claim.get("paper_id"),
+                "field": claim.get("field"),
+                "claim": claim.get("claim"),
+                "quote": claim.get("quote"),
+                "page_or_section": claim.get("page_or_section"),
+                "source_basis": claim.get("source_basis"),
+            }
+        )
+    return compact
+
+
 def execute_stage(db: Session, project: Project, run: Run, stage: str):
     stage_started = time.perf_counter()
     provider = stage_provider(run, stage)
@@ -700,25 +729,25 @@ def execute_stage(db: Session, project: Project, run: Run, stage: str):
         extraction = artifact_payload(db, run, "extraction")
         if not extraction:
             raise WorkflowError("Approve or create an extraction artifact first.")
-        content, model, usage = json_answer(
-            provider,
+        organization_claims = organization_claim_payload(extraction)
+        organization_prompt = (
             "Question: "
             + project.question
-            + "\nEvidence: "
-            + str(extraction)
+            + "\nEvidence claims (array positions are the claim indices): "
+            + json.dumps(organization_claims, ensure_ascii=False, separators=(",", ":"))
             + (
                 "\nReviewer feedback: " + run.settings.get("review_note", "")
                 if run.settings.get("review_note")
                 else ""
-            ),
-            "Group only supplied evidence claims into themes. claim_indices are zero-based indexes into the claims array and must identify every statement's evidence. Do not invent comparisons or gaps. Return JSON: {themes:[{name,summary,claim_indices:[int],agreements:[{text,claim_indices:[int]}],disagreements:[{text,claim_indices:[int]}],methodological_comparisons:[{text,claim_indices:[int]}],gaps:[{text,claim_indices:[int]}]}]}. Agreements, disagreements, and methodological comparisons require at least two evidence claim references; gaps require at least one. Omit a comparison when evidence is insufficient.",
+            )
+        )
+        content, model, usage = json_answer(
+            provider,
+            organization_prompt,
+            "Group only supplied evidence claims into themes. claim_indices are zero-based indexes into the supplied evidence claims array and must identify every statement's evidence. Do not invent comparisons or gaps. Return JSON: {themes:[{name,summary,claim_indices:[int],agreements:[{text,claim_indices:[int]}],disagreements:[{text,claim_indices:[int]}],methodological_comparisons:[{text,claim_indices:[int]}],gaps:[{text,claim_indices:[int]}]}]}. Agreements, disagreements, and methodological comparisons require at least two evidence claim references; gaps require at least one. Omit a comparison when evidence is insufficient.",
             temperature=run.settings.get("temperature", 0.0),
         )
-        claim_count = (
-            len(extraction.get("claims", []))
-            if isinstance(extraction.get("claims"), list)
-            else 0
-        )
+        claim_count = len(organization_claims)
         content = validate_organization(content, claim_count)
     elif stage == "synthesis":
         org = artifact_payload(db, run, "organization")
