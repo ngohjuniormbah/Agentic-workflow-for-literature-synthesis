@@ -70,12 +70,20 @@ When a run reaches `completed`, the Evaluation & Records panel provides three do
 
 ### Six primary outcomes in the summary CSV
 
-1. `extraction_accuracy_mean_1_to_5`: mean of independent extraction-stage scores using `factual_accuracy`, `accuracy`, or `semantic_accuracy`.
-2. `extraction_field_presence_rate_percent`: proportion of expected extraction fields that are non-empty in the generated extraction. This is a **field-presence proxy**, not semantic accuracy or verified completeness.
-3. `evidence_traceability_mean_1_to_5`: mean of independent extraction-stage scores using `evidence_support`, `evidence_traceability`, `evidence_fidelity`, or `source_fidelity`.
-4. `organization_quality_mean_1_to_5`: mean of independent organization-stage scores using `organization_quality`, `theme_quality`, `comparison_quality`, `gap_identification`, or `overall_quality`.
-5. `literature_synthesis_quality_mean_1_to_5`: mean of independent synthesis-stage scores using `synthesis_quality`, `factual_accuracy`, `critical_analysis`, `academic_coherence`, `citation_correctness`, or `overall_quality`.
-6. `human_review_time_minutes`: sum of measured review durations. Autonomous runs report zero intermediate-review minutes; supervised runs with missing review timing leave the value blank.
+1. `extraction_accuracy_mean_1_to_5`: independent human rating of factual correctness against source papers.
+2. `extraction_completeness_score_mean_1_to_5`: independent human rating of whether relevant research objectives, methodology, findings, limitations and gaps were captured.
+3. `evidence_traceability_mean_1_to_5`: independent human rating of whether extracted claims can be traced to relevant source passages.
+4. `organization_quality_mean_1_to_5`: independent human rating of themes, comparisons, agreements, contradictions and research gaps.
+5. `literature_synthesis_quality_mean_1_to_5`: independent human rating of the final review's accuracy, critical analysis, coherence and attribution.
+6. `human_review_time_minutes`: sum of recorded human review durations. Autonomous runs report zero intermediate-review minutes; if supervised review timing was not recorded, the value is blank.
+
+The separate `experiment_runs.csv` table includes `extraction_field_presence_rate_percent`, an automatically observed field-presence proxy. It is not a semantic completeness score and is not substituted for the independent completeness rating.
+
+### Simple post-run result editor
+
+Open **Evaluation & Records** after a run completes. The panel automatically displays the run's model, condition, frozen-corpus count and fingerprint, extraction field-presence observation, token usage, machine time and measured review time. Enter five independent quality ratings (1–5), evaluator ID, rubric version and a short note, then select **Save / update result record** once. The API saves or updates the stage-level evaluation records in one request; it does not require a database migration. You can edit the ratings and save again. Missing ratings remain blank in the CSV.
+
+The result editor is a human assessment step, not an AI-generated score. Review the relevant artifacts and papers before selecting ratings.
 
 Quality scores are **not generated automatically** and are never inferred from workflow approval. Enter independent evaluator scores in the Evaluation & Records panel using a consistent, versioned rubric. Suggested score keys are shown beside the evaluation form. Unrecorded scores remain blank. Scores must be grounded in source evidence and, for extraction accuracy, checked against independently prepared reference annotations where possible.
 

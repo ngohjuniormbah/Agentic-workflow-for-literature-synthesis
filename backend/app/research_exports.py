@@ -21,7 +21,7 @@ from .models import (
 PRIMARY_HEADERS = [
     "run_id", "pair_id", "condition", "model", "corpus_paper_count",
     "corpus_fingerprint_sha256", "extraction_accuracy_mean_1_to_5",
-    "extraction_field_presence_rate_percent",
+    "extraction_completeness_score_mean_1_to_5",
     "evidence_traceability_mean_1_to_5",
     "organization_quality_mean_1_to_5",
     "literature_synthesis_quality_mean_1_to_5",
@@ -128,27 +128,19 @@ def build_run_summary(db: Session, run: Run) -> dict:
         "corpus_paper_count": len(paper_ids),
         "corpus_fingerprint_sha256": run.settings.get("source_snapshot_hash", ""),
         "extraction_accuracy_mean_1_to_5": _mean_score(
-            evaluations, "extraction",
-            ("factual_accuracy", "accuracy", "semantic_accuracy"),
+            evaluations, "extraction", ("factual_accuracy",)
         ),
-        # This is a field-presence proxy, not semantic accuracy/completeness.
-        "extraction_field_presence_rate_percent": (
-            round(float(field_presence) * 100, 2)
-            if field_presence is not None else None
+        "extraction_completeness_score_mean_1_to_5": _mean_score(
+            evaluations, "extraction", ("extraction_completeness",)
         ),
         "evidence_traceability_mean_1_to_5": _mean_score(
-            evaluations, "extraction",
-            ("evidence_support", "evidence_traceability", "evidence_fidelity", "source_fidelity"),
+            evaluations, "extraction", ("evidence_support",)
         ),
         "organization_quality_mean_1_to_5": _mean_score(
-            evaluations, "organization",
-            ("overall_quality", "organization_quality", "theme_quality",
-             "comparison_quality", "gap_identification"),
+            evaluations, "organization", ("organization_quality",)
         ),
         "literature_synthesis_quality_mean_1_to_5": _mean_score(
-            evaluations, "synthesis",
-            ("overall_quality", "synthesis_quality", "factual_accuracy",
-             "critical_analysis", "academic_coherence", "citation_correctness"),
+            evaluations, "synthesis", ("synthesis_quality",)
         ),
         "human_review_time_minutes": (
             round(review_ms / 60000, 3) if review_ms is not None else None
@@ -205,6 +197,10 @@ def build_five_tables(db: Session, run: Run) -> dict[str, tuple[list[dict], list
         "temperature": run.settings.get("temperature"),
         "random_seed": run.settings.get("random_seed"),
         "source_mode": run.settings.get("source_mode"),
+        "extraction_field_presence_rate_percent": (
+            round(float(metrics["stage_observations"]["extraction"].get("field_presence_rate")) * 100, 2)
+            if metrics["stage_observations"]["extraction"].get("field_presence_rate") is not None else None
+        ),
         "created_at_utc": run.created_at.isoformat() if run.created_at else "",
         "updated_at_utc": run.updated_at.isoformat() if run.updated_at else "",
         "input_tokens": metrics["system"].get("input_tokens"),
@@ -351,6 +347,6 @@ def run_research_tables_zip(db: Session, run: Run) -> bytes:
             archive.writestr(name, _csv_text(rows, headers))
         archive.writestr(
             "README.txt",
-            "Five linked research CSV tables. Join using run_id. Blank quality scores mean no independent evaluator score was recorded. Human review decisions are not quality scores. extraction_field_presence_rate_percent is a field-presence proxy, not semantic accuracy or verified completeness. claim_evidence.csv contains only evaluator-provided evidence references and structured error annotations actually recorded; it does not invent claim-level labels.",
+            "Five linked research CSV tables. Join using run_id. Blank quality scores mean no independent evaluator score was recorded. Human review decisions are not quality scores. Extraction completeness is an independent 1-5 evaluation score; experiment_runs.csv separately reports extraction_field_presence_rate_percent as an automatically observed field-presence proxy, not semantic accuracy. claim_evidence.csv contains only evaluator-provided evidence references and structured error annotations actually recorded; it does not invent claim-level labels.",
         )
     return buffer.getvalue()
