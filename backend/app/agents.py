@@ -116,6 +116,7 @@ def complete(
     *,
     max_tokens: int | None = None,
     temperature: float = 0.0,
+    json_mode: bool = False,
 ) -> tuple[str, str, dict[str, Any]]:
     provider = provider_config(provider_name)
     headers = {
@@ -133,6 +134,9 @@ def complete(
     }
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
+    if json_mode:
+        # Native JSON mode constrains syntax; downstream validators still enforce schema.
+        payload["response_format"] = {"type": "json_object"}
     request_started = time.perf_counter()
     try:
         with httpx.Client(
@@ -216,6 +220,7 @@ def json_answer(
         prompt,
         system + " Return only valid JSON, without markdown fences.",
         temperature=temperature,
+        json_mode=True,
     )
     raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE)
     try:
