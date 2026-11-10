@@ -48,6 +48,7 @@ from .schemas import (
     ReferenceAnnotationCreate,
     ReviewAction,
     RunCreate,
+    RunResultRecordCreate,
 )
 from .workflow import (
     EXPERIMENT_CONDITION_POLICIES,
@@ -1016,6 +1017,93 @@ def list_reference_annotations(project_id: str, db: Session = Depends(get_db)):
         .order_by(ReferenceAnnotation.created_at)
     ).all()
     return [reference_view(row) for row in rows]
+
+
+@app.post("/api/v1/runs/{run_id}/result-record")
+def save_run_result_record(
+    run_id: str, body: RunResultRecordCreate, db: Session = Depends(get_db)
+):
+    """Create or update the compact independent evaluation record for one run."""
+    run = run_or_404(db, run_id)
+    if run.status != "completed":
+        raise HTTPException(409, "A result record can only be saved after the run is completed.")
+
+    stage_scores = {
+        "extraction": {
+            "factual_accuracy": body.extraction_accuracy,
+            "extraction_completeness": body.extraction_completeness,
+            "evidence_support": body.evidence_traceability,
+        },
+        "organization": {"organization_quality": body.organization_quality},
+        "synthesis": {"synthesis_quality": body.synthesis_quality},
+    }
+    saved = []
+    for stage, values in stage_scores.items():
+        scores = {key: value for key, value in values.items() if value is not None}
+        if not scores:
+            continue
+        artifact = db.scalar(
+            select(Artifact)
+            .where(Artifact.run_id == run.id, Artifact.stage == stage)
+            .order_by(desc(Artifact.created_at), desc(Artifact.version))
+            .limit(1)
+        )
+        if artifact is None:
+            raise HTTPException(409, f"Cannot save {stage} evaluation: no stage artifact exists.")
+
+        existing = db.scalar(
+            select(EvaluationRecord)
+            .where(
+                EvaluationRecord.run_id == run.id,
+                EvaluationRecord.stage == stage,
+                EvaluationRecord.evaluator_id == body.evaluator_id.strip(),
+                EvaluationRecord.rubric_version == body.rubric_version.strip(),
+            )
+            .order_by(desc(EvaluationRecord.created_at))
+            .limit(1)
+        )
+        if existing:
+            existing.artifact_id = artifact.id
+            existing.scores = {**(existing.scores or {}), **scores}
+            existing.comments = body.comments
+            row = existing
+        else:
+            row = EvaluationRecord(
+                id=str(uuid.uuid4()),
+                run_id=run.id,
+                artifact_id=artifact.id,
+                stage=stage,
+                evaluator_id=body.evaluator_id.strip(),
+                rubric_version=body.rubric_version.strip(),
+                scores=scores,
+                comments=body.comments,
+                evidence_references=[],
+                reference_paper_ids=[],
+            )
+            db.add(row)
+        saved.append(row)
+
+    if not saved:
+        raise HTTPException(422, "Enter at least one quality score before saving.")
+
+    record(
+        db, run.project_id, run.id,
+        "research_result_record_saved",
+        "Compact independent research result record saved",
+        {
+            "evaluator_id": body.evaluator_id.strip(),
+            "rubric_version": body.rubric_version.strip(),
+            "stages_updated": [row.stage for row in saved],
+        },
+    )
+    db.commit()
+    for row in saved:
+        db.refresh(row)
+    return {
+        "run_id": run.id,
+        "saved_stages": [row.stage for row in saved],
+        "evaluations": [evaluation_view(row) for row in saved],
+    }
 
 
 @app.post("/api/v1/runs/{run_id}/evaluations", status_code=201)
