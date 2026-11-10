@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     openai_model_id: str = ""
     openai_model: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
-    llm_timeout_seconds: float = 90.0
+    llm_timeout_seconds: float = 180.0
     extraction_batch_size: int = 2
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
