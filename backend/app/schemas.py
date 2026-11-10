@@ -106,6 +106,19 @@ class EvaluationCreate(BaseModel):
         return scores
 
 
+class RunResultRecordCreate(BaseModel):
+    """One compact, human-editable quality record for a completed workflow run."""
+
+    evaluator_id: str = Field(min_length=1, max_length=240)
+    rubric_version: str = Field(min_length=1, max_length=120)
+    extraction_accuracy: int | None = Field(default=None, ge=1, le=5)
+    extraction_completeness: int | None = Field(default=None, ge=1, le=5)
+    evidence_traceability: int | None = Field(default=None, ge=1, le=5)
+    organization_quality: int | None = Field(default=None, ge=1, le=5)
+    synthesis_quality: int | None = Field(default=None, ge=1, le=5)
+    comments: str = Field(default="", max_length=10000)
+
+
 class ErrorAnnotationCreate(BaseModel):
     artifact_id: str = Field(min_length=1, max_length=36)
     evaluator_id: str = Field(min_length=1, max_length=240)
