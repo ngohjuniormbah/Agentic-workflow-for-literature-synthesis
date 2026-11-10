@@ -166,3 +166,13 @@
 .advanced-result-section .data-form{margin-top:12px}
 @media(max-width:900px){.result-facts{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:620px){.result-score-grid,.result-meta-fields{grid-template-columns:1fr}.result-score-field{align-items:flex-start;flex-direction:column}.result-score-field select{width:100%}.result-actions{align-items:flex-start;flex-direction:column}}
+
+
+/* Structured organization artifact rendering */
+.theme-evidence-list{margin:9px 0 6px;padding:8px 10px;border:1px solid #e8eee9;border-radius:7px;background:#fff}
+.theme-evidence-list>strong{display:block;margin-bottom:6px;color:#496353;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.theme-evidence-item{padding:6px 0;border-top:1px solid #f0f3f0}
+.theme-evidence-item:first-of-type{border-top:0}
+.theme-evidence-item p{margin:0;color:#536259;font-size:10px;line-height:1.5;white-space:pre-wrap}
+.theme-evidence-item small{display:block;margin-top:4px;color:#87948c;font-size:9px}
+.theme-row>small{display:block;margin:5px 0;color:#87948c;font-size:9px}
