@@ -60,35 +60,152 @@ function ProjectDialog({close,submit,busy,initial}:{close:()=>void;submit:(d:For
 
 function ResearchDataPanel({run,project,papers}:{run:Run;project:Project;papers:Paper[]}){
  const [metrics,setMetrics]=useState<any>(null),[evaluations,setEvaluations]=useState<any[]>([]),[errors,setErrors]=useState<any[]>([]),[runs,setRuns]=useState<any[]>([]),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
- const [artifactId,setArtifactId]=useState(''),[evaluator,setEvaluator]=useState('Researcher'),[rubric,setRubric]=useState('rubric-v1'),[scoresJson,setScoresJson]=useState('{"factual_accuracy":3,"evidence_support":3,"citation_correctness":3}'),[comments,setComments]=useState(''),[evidenceJson,setEvidenceJson]=useState('[]'),[referenceIds,setReferenceIds]=useState('[]');
- const [errorCategory,setErrorCategory]=useState('unsupported_claim'),[severity,setSeverity]=useState('moderate'),[errorCorrection,setErrorCorrection]=useState(''),[errorComments,setErrorComments]=useState(''),[sourceEvidenceJson,setSourceEvidenceJson]=useState('[]'),[corrected,setCorrected]=useState(false),[propagated,setPropagated]=useState(false);
+ const [evaluator,setEvaluator]=useState('Researcher'),[rubric,setRubric]=useState('rubric-v1');
+ const [scores,setScores]=useState<Record<string,string>>({
+  extraction_accuracy:'',extraction_completeness:'',evidence_traceability:'',
+  organization_quality:'',synthesis_quality:''
+ });
+ const [comments,setComments]=useState('');
+ const [errorArtifact,setErrorArtifact]=useState(''),[errorCategory,setErrorCategory]=useState('unsupported_claim'),[severity,setSeverity]=useState('moderate'),[errorCorrection,setErrorCorrection]=useState(''),[errorComments,setErrorComments]=useState(''),[sourceEvidenceJson,setSourceEvidenceJson]=useState('[]'),[corrected,setCorrected]=useState(false),[propagated,setPropagated]=useState(false);
  const [pairs,setPairs]=useState([{a:'',b:''}]),[comparison,setComparison]=useState<any>(null);
- const refresh=async()=>{try{const [m,e,x,p]=await Promise.all([api<any>(`/runs/${run.id}/metrics`),api<any[]>(`/runs/${run.id}/evaluations`),api<any[]>(`/runs/${run.id}/errors`),api<any>(`/projects/${project.id}`)]);setMetrics(m);setEvaluations(e);setErrors(x);setRuns(p.runs||[])}catch(err:any){setMessage(err.message)}};
- useEffect(()=>{refresh()},[run.id]);
- useEffect(()=>{if(!artifactId&&run.artifacts?.length)setArtifactId(run.artifacts[run.artifacts.length-1].id)},[run.id,run.artifacts?.length]);
- const artifactLabel=(a:any)=>`${a.settings?.experiment_label||a.settings?.condition||'Run'} · ${a.settings?.replicate||'replicate'} · ${a.status} · ${a.id.slice(0,8)}`;
- async function submitEvaluation(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage('');try{const scores=JSON.parse(scoresJson),evidence_references=JSON.parse(evidenceJson),reference_paper_ids=JSON.parse(referenceIds);await api(`/runs/${run.id}/evaluations`,{method:'POST',body:JSON.stringify({artifact_id:artifactId,evaluator_id:evaluator,rubric_version:rubric,scores,comments,evidence_references,reference_paper_ids})});setMessage('Independent evaluation saved.');await refresh()}catch(err:any){setMessage(err instanceof SyntaxError?'Check that the score, evidence, and reference IDs fields contain valid JSON.':err.message)}finally{setBusy(false)}}
- async function submitError(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage('');try{const source_evidence=JSON.parse(sourceEvidenceJson);await api(`/runs/${run.id}/errors`,{method:'POST',body:JSON.stringify({artifact_id:artifactId,evaluator_id:evaluator,category:errorCategory,severity,source_evidence,human_correction:errorCorrection,corrected,propagated,comments:errorComments})});setMessage('Error annotation saved.');await refresh()}catch(err:any){setMessage(err instanceof SyntaxError?'Source evidence must be valid JSON.':err.message)}finally{setBusy(false)}}
- async function compare(e:React.FormEvent){e.preventDefault();setBusy(true);setMessage('');try{const selected=pairs.filter(pair=>pair.a&&pair.b).map(pair=>({no_intermediate_run_id:pair.a,supervised_run_id:pair.b}));if(!selected.length)throw new Error('Add at least one completed run pair.');const result=await api<any>(`/projects/${project.id}/compare`,{method:'POST',body:JSON.stringify({pairs:selected})});setComparison(result)}catch(err:any){setMessage(err.message)}finally{setBusy(false)}}
  const available=run.artifacts||[];
+ const refresh=async()=>{
+  try{
+   const [m,e,x,p]=await Promise.all([
+    api<any>(`/runs/${run.id}/metrics`),api<any[]>(`/runs/${run.id}/evaluations`),
+    api<any[]>(`/runs/${run.id}/errors`),api<any>(`/projects/${project.id}`)
+   ]);
+   setMetrics(m);setEvaluations(e);setErrors(x);setRuns(p.runs||[]);
+   const next:Record<string,string>={extraction_accuracy:'',extraction_completeness:'',evidence_traceability:'',organization_quality:'',synthesis_quality:''};
+   for(const row of e){
+    const stageMap:Record<string,Record<string,string>>={
+     extraction:{factual_accuracy:'extraction_accuracy',accuracy:'extraction_accuracy',semantic_accuracy:'extraction_accuracy',extraction_completeness:'extraction_completeness',completeness:'extraction_completeness',evidence_support:'evidence_traceability',evidence_traceability:'evidence_traceability',evidence_fidelity:'evidence_traceability',source_fidelity:'evidence_traceability'},
+     organization:{organization_quality:'organization_quality',overall_quality:'organization_quality'},
+     synthesis:{synthesis_quality:'synthesis_quality',overall_quality:'synthesis_quality'}
+    };
+    for(const [key,value] of Object.entries(row.scores||{})){
+     const target=stageMap[row.stage]?.[key];
+     if(target&&value!=null)next[target]=String(value);
+    }
+    if(row.comments)setComments(row.comments);
+   }
+   setScores(next);
+  }catch(err:any){setMessage(err.message)}
+ };
+ useEffect(()=>{refresh()},[run.id]);
+ useEffect(()=>{if(available.length&&!errorArtifact)setErrorArtifact(available[available.length-1].id)},[run.id,available.length]);
+ const metricValue=(value:any,suffix='')=>value===null||value===undefined?'Not recorded':`${value}${suffix}`;
+ const humanStats=metrics?.human?.measured_review_duration_ms;
+ const totalReviewMinutes=humanStats&&humanStats.n?((humanStats.mean*humanStats.n)/60000).toFixed(2):run.settings?.condition==='without_intermediate_human_supervision'?'0.00':'Not recorded';
+ const fieldPresence=metrics?.stage_observations?.extraction?.field_presence_rate;
+ const corpusCount=(metrics?.source_paper_ids||[]).length;
+ const modelNames=Object.values(run.settings?.model_ids||{}).filter(Boolean);
+ const modelLabel=modelNames.length&&new Set(modelNames).size===1?String(modelNames[0]):Object.values(run.models||{}).join(', ');
+ const setScore=(key:string,value:string)=>setScores(prev=>({...prev,[key]:value}));
+ async function saveResult(e:React.FormEvent){
+  e.preventDefault();setBusy(true);setMessage('');
+  try{
+   const numeric=(key:string)=>scores[key]?Number(scores[key]):null;
+   const result=await api<any>(`/runs/${run.id}/result-record`,{method:'POST',body:JSON.stringify({
+    evaluator_id:evaluator,rubric_version:rubric,
+    extraction_accuracy:numeric('extraction_accuracy'),
+    extraction_completeness:numeric('extraction_completeness'),
+    evidence_traceability:numeric('evidence_traceability'),
+    organization_quality:numeric('organization_quality'),
+    synthesis_quality:numeric('synthesis_quality'),
+    comments
+   })});
+   setMessage(`Result record saved. Updated: ${result.saved_stages.join(', ')}.`);
+   await refresh();
+  }catch(err:any){setMessage(err.message)}finally{setBusy(false)}
+ }
+ async function submitError(e:React.FormEvent){
+  e.preventDefault();setBusy(true);setMessage('');
+  try{
+   const source_evidence=JSON.parse(sourceEvidenceJson);
+   await api(`/runs/${run.id}/errors`,{method:'POST',body:JSON.stringify({
+    artifact_id:errorArtifact,evaluator_id:evaluator,category:errorCategory,severity,
+    source_evidence,human_correction:errorCorrection,corrected,propagated,comments:errorComments
+   })});
+   setMessage('Error annotation saved.');await refresh();
+  }catch(err:any){setMessage(err instanceof SyntaxError?'Source evidence must be valid JSON.':err.message)}
+  finally{setBusy(false)}
+ }
+ async function compare(e:React.FormEvent){
+  e.preventDefault();setBusy(true);setMessage('');
+  try{
+   const selected=pairs.filter(pair=>pair.a&&pair.b).map(pair=>({no_intermediate_run_id:pair.a,supervised_run_id:pair.b}));
+   if(!selected.length)throw new Error('Add at least one completed run pair.');
+   const result=await api<any>(`/projects/${project.id}/compare`,{method:'POST',body:JSON.stringify({pairs:selected})});
+   setComparison(result);
+  }catch(err:any){setMessage(err.message)}finally{setBusy(false)}
+ }
+ const artifactLabel=(a:any)=>`${a.settings?.experiment_label||a.settings?.condition||'Run'} · ${a.settings?.replicate||'replicate'} · ${a.status} · ${a.id.slice(0,8)}`;
+ const scoreControl=(key:string,title:string,description:string)=><label className="result-score-field"><span><b>{title}</b><small>{description}</small></span><select required value={scores[key]} onChange={e=>setScore(key,e.target.value)}><option value="">Select score</option>{[1,2,3,4,5].map(n=><option value={n} key={n}>{n} / 5</option>)}</select></label>;
+ const completed=run.status==='completed';
+ const scoredCount=Object.values(scores).filter(Boolean).length;
  return <div className="research-data">
-  <div className="content-card"><div className="section-head"><div><h3>Independent quality evaluation</h3><p>Score an artifact after it is produced. These scores are separate from workflow approvals and are not model-generated.</p></div><div className="experiment-exports">
-    {run.status === 'completed' ? <>
-      <a className="export-button" href={`/api/v1/runs/${run.id}/research-summary.csv`}>Download six-outcome CSV</a>
-      <a className="export-button" href={`/api/v1/runs/${run.id}/research-tables.zip`}>Download five research tables</a>
-      <a className="export-button" href={`/api/v1/runs/${run.id}/evidence-package`}>Download full evidence package</a>
-    </> : <span className="label-muted">Exports become available when this run is completed.</span>}
-   </div></div>
-   <form onSubmit={submitEvaluation} className="data-form"><label>Artifact<select required value={artifactId} onChange={e=>setArtifactId(e.target.value)}><option value="">Choose an artifact</option>{available.map(a=><option key={a.id} value={a.id}>{a.stage} · v{a.version} · {a.model}</option>)}</select></label><label>Evaluator ID<input required value={evaluator} onChange={e=>setEvaluator(e.target.value)}/></label><label>Rubric version<input required value={rubric} onChange={e=>setRubric(e.target.value)}/></label><label>Dimension scores (JSON; each score 1–5)<textarea value={scoresJson} onChange={e=>setScoresJson(e.target.value)}/></label>
-   <p className="label-muted">Use consistent rubric keys: Extraction — factual_accuracy and evidence_support; Organization — organization_quality, theme_quality, comparison_quality; Generation — synthesis_quality, factual_accuracy, citation_correctness, critical_analysis, academic_coherence. The six-outcome CSV only uses independently entered scores; missing scores stay blank.</p><label>Evaluator comments<textarea value={comments} onChange={e=>setComments(e.target.value)}/></label><label>Evidence references (JSON array)<textarea value={evidenceJson} onChange={e=>setEvidenceJson(e.target.value)}/></label><label>Reference relevant paper IDs for Search (JSON array)<textarea value={referenceIds} onChange={e=>setReferenceIds(e.target.value)}/></label><button className="primary" disabled={busy||!artifactId}>{busy?'Saving…':'Save independent evaluation'}</button></form>
-  </div>
-  <div className="content-card"><div className="section-head"><div><h3>Structured error analysis</h3><p>Record the stage, severity, evidence, correction, and whether an error propagated.</p></div></div><form onSubmit={submitError} className="data-form"><label>Artifact<select required value={artifactId} onChange={e=>setArtifactId(e.target.value)}><option value="">Choose an artifact</option>{available.map(a=><option key={a.id} value={a.id}>{a.stage} · v{a.version} · {a.model}</option>)}</select></label><label>Category<select value={errorCategory} onChange={e=>setErrorCategory(e.target.value)}>{['retrieval_error','missing_information','factual_extraction_error','evidence_attribution_error','citation_error','organization_error','incorrect_comparison','unsupported_claim','fabricated_information','synthesis_error'].map(x=><option key={x}>{x}</option>)}</select></label><label>Severity<select value={severity} onChange={e=>setSeverity(e.target.value)}>{['minor','moderate','major','critical'].map(x=><option key={x}>{x}</option>)}</select></label><label>Source evidence (JSON array)<textarea value={sourceEvidenceJson} onChange={e=>setSourceEvidenceJson(e.target.value)}/></label><label>Human correction<textarea value={errorCorrection} onChange={e=>setErrorCorrection(e.target.value)}/></label><label>Comments<textarea value={errorComments} onChange={e=>setErrorComments(e.target.value)}/></label><label><input type="checkbox" checked={corrected} onChange={e=>setCorrected(e.target.checked)}/> Error corrected</label><label><input type="checkbox" checked={propagated} onChange={e=>setPropagated(e.target.checked)}/> Error propagated downstream</label><button className="primary" disabled={busy||!artifactId}>{busy?'Saving…':'Save error annotation'}</button></form></div>
-  <div className="content-card"><div className="section-head"><div><h3>Paired A/B comparison</h3><p>Select completed runs with the same replicate ID. Only matching model, settings, and frozen corpus are accepted.</p></div></div><form onSubmit={compare} className="data-form">{pairs.map((pair,index)=><div className="experiment-fields" key={index}><label>Condition A · no intermediate review<select value={pair.a} onChange={e=>setPairs(pairs.map((p,i)=>i===index?{...p,a:e.target.value}:p))}><option value="">Select run</option>{runs.filter((r:any)=>r.status==='completed'&&r.settings?.condition==='without_intermediate_human_supervision').map((r:any)=><option key={r.id} value={r.id}>{artifactLabel(r)}</option>)}</select></label><label>Condition B · all-stage review<select value={pair.b} onChange={e=>setPairs(pairs.map((p,i)=>i===index?{...p,b:e.target.value}:p))}><option value="">Select run</option>{runs.filter((r:any)=>r.status==='completed'&&r.settings?.condition==='with_human_supervision_all_stages').map((r:any)=><option key={r.id} value={r.id}>{artifactLabel(r)}</option>)}</select></label></div>)}<div><button type="button" className="secondary" onClick={()=>setPairs([...pairs,{a:'',b:''}])}>Add replicate pair</button> <button className="primary" disabled={busy}>{busy?'Comparing…':'Compare pairs'}</button></div></form>{comparison&&<pre className="data-output">{JSON.stringify(comparison,null,2)}</pre>}</div>
-  <div className="content-card"><div className="section-head"><div><h3>Run metrics and saved records</h3><p>Descriptive metrics only; missing provider cost is left missing.</p></div></div><button className="secondary" onClick={refresh}>Refresh metrics</button><pre className="data-output">{JSON.stringify({metrics,evaluations,errors},null,2)}</pre></div>
+  <section className="content-card result-record-card">
+   <div className="section-head"><div><span className="eyebrow">RUN RESULT RECORD</span><h3>Review and save this experiment</h3><p>Run observations are collected automatically. Assess the five quality outcomes once, then download the result.</p></div><span className={completed?'artifact-status approved':'artifact-status pending_review'}>{completed?'Run completed':'Run not completed'}</span></div>
+   <div className="result-facts">
+    <div><small>Condition</small><b>{run.settings?.condition==='with_human_supervision_all_stages'?'B · Human-supervised':'A · Autonomous'}</b></div>
+    <div><small>Model</small><b>{modelLabel||'Not recorded'}</b></div>
+    <div><small>Frozen corpus</small><b>{metricValue(corpusCount,' papers')}</b></div>
+    <div><small>Corpus fingerprint</small><b className="result-hash">{metrics?.source_snapshot_hash||'Not recorded'}</b></div>
+    <div><small>Machine execution</small><b>{metricValue(metrics?.system?.total_agent_execution_duration_ms!=null?(metrics.system.total_agent_execution_duration_ms/1000).toFixed(1):null,' sec')}</b></div>
+    <div><small>Human review effort</small><b>{totalReviewMinutes==='Not recorded'?totalReviewMinutes:`${totalReviewMinutes} min`}</b></div>
+    <div><small>Extraction fields present</small><b>{fieldPresence==null?'Not recorded':`${(fieldPresence*100).toFixed(1)}% · presence only`}</b></div>
+    <div><small>Tokens used</small><b>{metricValue(metrics?.system?.total_tokens)}</b></div>
+   </div>
+   <form className="result-editor" onSubmit={saveResult}>
+    <div className="section-head"><div><h4>Independent quality ratings</h4><p>Inspect the artifacts and source papers. Use the same rubric for both conditions. Select 1–5; no score is pre-filled.</p></div><span className="pending-badge">{scoredCount}/5 assessed</span></div>
+    <div className="result-score-grid">
+     {scoreControl('extraction_accuracy','1. Extraction accuracy','Are the extracted facts faithful to the source papers?')}
+     {scoreControl('extraction_completeness','2. Extraction completeness','Were the relevant objectives, methods, findings and limitations captured?')}
+     {scoreControl('evidence_traceability','3. Evidence traceability','Can extracted claims be traced to appropriate source passages?')}
+     {scoreControl('organization_quality','4. Organization quality','Are themes, comparisons, agreements and gaps meaningful?')}
+     {scoreControl('synthesis_quality','5. Literature synthesis quality','Is the final review accurate, critical, coherent and properly attributed?')}
+    </div>
+    <div className="result-meta-fields">
+     <label>Evaluator<input value={evaluator} onChange={e=>setEvaluator(e.target.value)} required/></label>
+     <label>Rubric version<input value={rubric} onChange={e=>setRubric(e.target.value)} required/></label>
+    </div>
+    <label className="result-comments">Evaluator notes<textarea value={comments} onChange={e=>setComments(e.target.value)} placeholder="Briefly justify ratings and note important strengths or weaknesses…"/></label>
+    <div className="result-actions"><button className="primary" disabled={!completed||busy||scoredCount!==5}>{busy?'Saving…':'Save / update result record'}</button><span>Saved ratings can be edited and saved again.</span></div>
+   </form>
+   <div className="result-downloads">
+    {completed?<><a className="export-button" href={`/api/v1/runs/${run.id}/research-summary.csv`}>Download six-outcome CSV</a><a className="export-button" href={`/api/v1/runs/${run.id}/research-tables.zip`}>Download five research tables</a><a className="export-button" href={`/api/v1/runs/${run.id}/evidence-package`}>Full evidence package</a></>:<span className="label-muted">Downloads are available when the run is completed.</span>}
+   </div>
+  </section>
+  <details className="content-card result-advanced"><summary>Advanced records · error annotations and paired comparisons</summary>
+   <div className="advanced-result-section"><h4>Structured error analysis</h4><p className="label-muted">Record only errors you actually identify during evaluation.</p>
+    <form onSubmit={submitError} className="data-form">
+     <label>Artifact<select required value={errorArtifact} onChange={e=>setErrorArtifact(e.target.value)}><option value="">Choose artifact</option>{available.map(a=><option key={a.id} value={a.id}>{a.stage} · v{a.version} · {a.model}</option>)}</select></label>
+     <label>Category<select value={errorCategory} onChange={e=>setErrorCategory(e.target.value)}>{['retrieval_error','missing_information','factual_extraction_error','evidence_attribution_error','citation_error','organization_error','incorrect_comparison','unsupported_claim','fabricated_information','synthesis_error'].map(x=><option key={x}>{x}</option>)}</select></label>
+     <label>Severity<select value={severity} onChange={e=>setSeverity(e.target.value)}>{['minor','moderate','major','critical'].map(x=><option key={x}>{x}</option>)}</select></label>
+     <label>Source evidence (JSON array)<textarea value={sourceEvidenceJson} onChange={e=>setSourceEvidenceJson(e.target.value)}/></label>
+     <label>Human correction<textarea value={errorCorrection} onChange={e=>setErrorCorrection(e.target.value)}/></label>
+     <label>Comments<textarea value={errorComments} onChange={e=>setErrorComments(e.target.value)}/></label>
+     <label><input type="checkbox" checked={corrected} onChange={e=>setCorrected(e.target.checked)}/> Error corrected</label>
+     <label><input type="checkbox" checked={propagated} onChange={e=>setPropagated(e.target.checked)}/> Error propagated downstream</label>
+     <button className="primary" disabled={busy||!errorArtifact}>{busy?'Saving…':'Save error annotation'}</button>
+    </form>
+   </div>
+   <div className="advanced-result-section"><h4>Paired A/B comparison</h4><p className="label-muted">Match completed runs with identical corpus and model settings.</p>
+    <form onSubmit={compare} className="data-form">
+     {pairs.map((pair,index)=><div className="experiment-fields" key={index}>
+      <label>Condition A · autonomous<select value={pair.a} onChange={e=>setPairs(pairs.map((p,i)=>i===index?{...p,a:e.target.value}:p))}><option value="">Select run</option>{runs.filter((r:any)=>r.status==='completed'&&r.settings?.condition==='without_intermediate_human_supervision').map((r:any)=><option key={r.id} value={r.id}>{artifactLabel(r)}</option>)}</select></label>
+      <label>Condition B · human-supervised<select value={pair.b} onChange={e=>setPairs(pairs.map((p,i)=>i===index?{...p,b:e.target.value}:p))}><option value="">Select run</option>{runs.filter((r:any)=>r.status==='completed'&&r.settings?.condition==='with_human_supervision_all_stages').map((r:any)=><option key={r.id} value={r.id}>{artifactLabel(r)}</option>)}</select></label>
+     </div>)}
+     <div><button type="button" className="secondary" onClick={()=>setPairs([...pairs,{a:'',b:''}])}>Add replicate pair</button> <button className="primary" disabled={busy}>{busy?'Comparing…':'Compare pairs'}</button></div>
+    </form>
+    {comparison&&<pre className="data-output">{JSON.stringify(comparison,null,2)}</pre>}
+   </div>
+   <div className="advanced-result-section"><h4>Saved data</h4><button className="secondary" onClick={refresh}>Refresh records</button><pre className="data-output">{JSON.stringify({evaluations,errors,metrics},null,2)}</pre></div>
+  </details>
   {message&&<div className="content-card" role="status">{message}</div>}
  </div>
 }
-
 function ReferenceAnnotationPanel({project,papers}:{project:Project;papers:Paper[]}){
  const [paperId,setPaperId]=useState(''),[annotator,setAnnotator]=useState('Researcher'),[version,setVersion]=useState('reference-v1'),[annotations,setAnnotations]=useState('{\n  "research_objective": "Not reported",\n  "research_problem": "Not reported",\n  "research_question": "Not reported",\n  "methodology": "Not reported",\n  "research_design": "Not reported",\n  "dataset_or_sample": "Not reported",\n  "data_collection_methods": "Not reported",\n  "analysis_methods": "Not reported",\n  "findings": "Not reported",\n  "limitations": "Not reported",\n  "research_gaps": "Not reported",\n  "contributions": "Not reported",\n  "supporting_evidence": [],\n  "page_or_section_references": []\n}'),[comments,setComments]=useState(''),[rows,setRows]=useState<any[]>([]),[message,setMessage]=useState('');
  const refresh=async()=>{try{setRows(await api<any[]>(`/projects/${project.id}/reference-annotations`))}catch(err:any){setMessage(err.message)}};useEffect(()=>{refresh()},[project.id]);
