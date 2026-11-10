@@ -54,7 +54,68 @@ export default function Home(){
 }
 function PaperRow({paper:p}:{paper:Paper}){return <article className="paper-row"><div className="paper-file"><FileText size={18}/></div><div className="paper-main"><a href={p.url||'#'} target="_blank" rel="noreferrer" className="paper-title">{p.title}</a><div className="paper-meta">{p.authors?.slice(0,3).join(', ')}{(p.authors?.length||0)>3?' et al.':''}{p.year?` · ${p.year}`:''}{p.venue?` · ${p.venue}`:''}{p.has_full_text?' · full text available':''}{p.in_frozen_corpus===false?' · excluded from frozen corpus':''}</div>{p.abstract&&<p className="paper-abstract">{p.abstract.slice(0,300)}{p.abstract.length>300?'…':''}</p>}</div><div className="paper-cites"><b>{p.citation_count}</b><span>citations</span></div></article>}
 function SourceScreen({papers,selectedIds,onChange,frozenCorpus=false}:{papers:any[];selectedIds:string[];onChange:(ids:string[])=>void;frozenCorpus?:boolean}){const selected=new Set(selectedIds);return <section className="screening-panel" aria-label="Screen search results"><div className="screening-head"><div><b>Review Search results</b><p>{frozenCorpus?'Record relevance decisions; the frozen comparison corpus stays unchanged downstream.':'Uncheck papers that do not meet your inclusion criteria.'}</p></div><span>{selectedIds.length} / {papers.length} included</span></div><div className="screening-list">{papers.map((p:any)=><label className="screening-item" key={p.id}><input type="checkbox" checked={selected.has(p.id)} onChange={e=>onChange(e.target.checked?[...selectedIds,p.id]:selectedIds.filter(id=>id!==p.id))}/><span><b>{p.title}</b><small>Rank {p.relevance_rank||'—'} · {p.year||'Year unknown'}{p.doi?` · ${p.doi}`:''}</small>{p.relevance_note&&<em>Search agent: {p.relevance_note}</em>}{p.abstract&&<em>{p.abstract.slice(0,280)}{p.abstract.length>280?'…':''}</em>}</span></label>)}</div></section>}
-function ArtifactBody({artifact:a,papers}:{artifact:Artifact;papers:Paper[]}){const c=a.content||{};if(a.stage==='search')return <div className="artifact-preview"><div className="preview-metric"><b>{c.count||0}</b><span>candidates ranked · awaiting human screening</span></div><p>Retrieval: {c.retrieval_source||c.source_mode} · ranked by {c.model||c.provider}</p><p>Research question: “{c.query}”</p><div className="mini-source-list">{(c.papers||[]).slice(0,3).map((p:any)=><div key={p.id}><FileText size={13}/><span>{p.title}</span><small>{p.year||'—'}</small></div>)}</div></div>;if(a.stage==='extraction')return <div className="artifact-preview"><div className="preview-metric"><b>{c.claims?.length||0}</b><span>grounded claims · {c.rejected_claim_count||0} unsupported claims filtered</span></div>{(c.claims||[]).map((x:any,i:number)=><div className="claim" key={i}><p>“{x.quote}”</p><b>{x.claim}</b><span>Source: {papers.find(p=>p.id===x.paper_id)?.title||x.paper_id} · {x.method||'Method not reported'}</span></div>)}</div>;if(a.stage==='organization')return <div className="artifact-preview"><div className="preview-metric"><b>{c.themes?.length||0}</b><span>themes organized</span></div>{(c.themes||[]).map((x:any,i:number)=><div className="theme-row" key={i}><b>{x.name}</b><p>{x.summary}</p>{x.gaps&&<small>Evidence gaps: {x.gaps}</small>}</div>)}</div>;return <div className="draft-preview"><button className="export-button" onClick={()=>{const ids:string[]=c.citations||[];const refs=ids.map((id:string)=>papers.find(p=>p.id===id)).filter(Boolean) as Paper[];let draft=c.draft||'';refs.forEach((p,i)=>{draft=draft.replaceAll(`[${p.id}]`,`[${i+1}]`)});const bibliography=refs.map((p,i)=>`${i+1}. ${p.authors?.join(', ')||'Unknown author'}${p.year?` (${p.year})`:''}. ${p.title}.${p.doi?` https://doi.org/${p.doi}`:p.url?` ${p.url}`:''}`).join('\n');const blob=new Blob([`# Literature synthesis\n\n${draft}\n\n## References\n\n${bibliography}\n`],{type:'text/markdown'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='literature-synthesis.md';link.click();URL.revokeObjectURL(url)}}><Download size={13}/> Export Markdown</button>{(c.draft||'Synthesis draft is empty.').split('\n').filter(Boolean).map((line:string,i:number)=><p key={i}>{line}</p>)}<div className="citation-count">{c.citations?.length||0} linked source citations · {c.word_count||0} words</div></div>}
+function artifactValueText(value:any):string{
+ if(value===null||value===undefined)return '';
+ if(typeof value==='string'||typeof value==='number'||typeof value==='boolean')return String(value);
+ if(Array.isArray(value))return value.map(artifactValueText).filter(Boolean).join(', ');
+ if(typeof value==='object'){
+  if(typeof value.text==='string')return value.text;
+  if(typeof value.claim==='string')return value.claim;
+  if(typeof value.summary==='string')return value.summary;
+  return JSON.stringify(value);
+ }
+ return String(value);
+}
+function ArtifactEvidenceList({label,items}:{label:string;items:any[]}){
+ if(!Array.isArray(items)||items.length===0)return null;
+ return <div className="theme-evidence-list"><strong>{label}</strong>{items.map((item:any,index:number)=>{
+  const text=artifactValueText(item);
+  const indices=Array.isArray(item?.claim_indices)?item.claim_indices.filter((n:any)=>Number.isInteger(n)&&n>=0):[];
+  return <div className="theme-evidence-item" key={index}><p>{text||'No description supplied.'}</p>{indices.length>0&&<small>Evidence claims: {indices.map((n:number)=>`#${n+1}`).join(', ')}</small>}</div>;
+ })}</div>;
+}
+function ArtifactBody({artifact:a,papers}:{artifact:Artifact;papers:Paper[]}){
+ const c=a.content||{};
+ if(a.stage==='search')return <div className="artifact-preview">
+  <div className="preview-metric"><b>{c.count||0}</b><span>candidates ranked · awaiting human screening</span></div>
+  <p>Retrieval: {artifactValueText(c.retrieval_source||c.source_mode)} · ranked by {artifactValueText(c.model||c.provider)}</p>
+  <p>Research question: “{artifactValueText(c.query)}”</p>
+  <div className="mini-source-list">{(Array.isArray(c.papers)?c.papers:[]).slice(0,3).map((p:any,i:number)=><div key={p.id||i}><FileText size={13}/><span>{artifactValueText(p.title)}</span><small>{artifactValueText(p.year)||'—'}</small></div>)}</div>
+ </div>;
+ if(a.stage==='extraction')return <div className="artifact-preview">
+  <div className="preview-metric"><b>{Array.isArray(c.claims)?c.claims.length:0}</b><span>grounded claims · {c.rejected_claim_count||0} unsupported claims filtered</span></div>
+  {(Array.isArray(c.claims)?c.claims:[]).map((x:any,i:number)=><div className="claim" key={i}>
+   <p>“{artifactValueText(x.quote)}”</p><b>{artifactValueText(x.claim)}</b>
+   <span>Source: {artifactValueText(papers.find(p=>p.id===x.paper_id)?.title||x.paper_id)} · {artifactValueText(x.method||'Method not reported')}</span>
+  </div>)}
+ </div>;
+ if(a.stage==='organization')return <div className="artifact-preview">
+  <div className="preview-metric"><b>{Array.isArray(c.themes)?c.themes.length:0}</b><span>themes organized</span></div>
+  {(Array.isArray(c.themes)?c.themes:[]).map((theme:any,index:number)=><div className="theme-row" key={index}>
+   <b>{artifactValueText(theme?.name)||`Theme ${index+1}`}</b>
+   <p>{artifactValueText(theme?.summary)}</p>
+   {Array.isArray(theme?.claim_indices)&&theme.claim_indices.length>0&&<small>Supporting claims: {theme.claim_indices.filter((n:any)=>Number.isInteger(n)&&n>=0).map((n:number)=>`#${n+1}`).join(', ')}</small>}
+   <ArtifactEvidenceList label="Agreements" items={theme?.agreements}/>
+   <ArtifactEvidenceList label="Disagreements" items={theme?.disagreements}/>
+   <ArtifactEvidenceList label="Methodological comparisons" items={theme?.methodological_comparisons}/>
+   <ArtifactEvidenceList label="Research gaps" items={theme?.gaps}/>
+  </div>)}
+  {(c.dropped_unreferenced_themes||c.dropped_unreferenced_comparisons)?<small className="label-muted">Validation filtered {c.dropped_unreferenced_themes||0} unsupported themes and {c.dropped_unreferenced_comparisons||0} unsupported comparisons.</small>:null}
+ </div>;
+ return <div className="draft-preview">
+  <button className="export-button" onClick={()=>{
+   const ids:string[]=Array.isArray(c.citations)?c.citations:[];
+   const refs=ids.map((id:string)=>papers.find(p=>p.id===id)).filter(Boolean) as Paper[];
+   let draft=typeof c.draft==='string'?c.draft:'';
+   refs.forEach((p,i)=>{draft=draft.replaceAll(`[${p.id}]`,`[${i+1}]`)});
+   const bibliography=refs.map((p,i)=>`${i+1}. ${p.authors?.join(', ')||'Unknown author'}${p.year?` (${p.year})`:''}. ${p.title}.${p.doi?` https://doi.org/${p.doi}`:p.url?` ${p.url}`:''}`).join('\\n');
+   const blob=new Blob([`# Literature synthesis\\n\\n${draft}\\n\\n## References\\n\\n${bibliography}\\n`],{type:'text/markdown'});
+   const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='literature-synthesis.md';link.click();URL.revokeObjectURL(url)
+  }}><Download size={13}/> Export Markdown</button>
+  {(typeof c.draft==='string'?c.draft:'Synthesis draft is empty.').split('\\n').filter(Boolean).map((line:string,i:number)=><p key={i}>{line}</p>)}
+  <div className="citation-count">{Array.isArray(c.citations)?c.citations.length:0} linked source citations · {c.word_count||0} words</div>
+ </div>;
+}
 function ProjectDialog({close,submit,busy,initial}:{close:()=>void;submit:(d:FormData)=>void;busy:boolean;initial:Project|null}){return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)close()}}><form className="modal" action={submit}><div className="modal-head"><div><span className="eyebrow">PROJECT SETUP</span><h2>{initial?'Project details':'Create a literature review'}</h2></div><button type="button" className="icon-button" onClick={close}><X size={18}/></button></div><label>Project name<input required minLength={2} name="title" defaultValue={initial?.title} placeholder="e.g. AI in clinical decision support"/></label><label>Research question<textarea required minLength={10} name="question" defaultValue={initial?.question} rows={3} placeholder="What do you want to understand from the literature?"/></label><label>Scope and inclusion notes <span className="label-muted">Optional</span><textarea name="scope" defaultValue={initial?.scope} rows={2} placeholder="Population, years, methods, or exclusions…"/></label><div className="modal-foot"><button type="button" className="secondary" onClick={close}>Cancel</button><button disabled={busy} className="primary" type="submit">{busy&&<LoaderCircle size={15} className="spin"/>}{initial?'Save project':'Create project'} <ArrowRight size={15}/></button></div></form></div>}
 
 
