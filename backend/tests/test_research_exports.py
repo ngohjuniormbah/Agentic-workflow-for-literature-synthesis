@@ -132,8 +132,8 @@ class ResearchExportTests(unittest.TestCase):
 
     def test_compact_result_record_saves_and_updates_five_scores(self):
         body = RunResultRecordCreate(
-            evaluator_id="researcher",
-            rubric_version="rubric-v1",
+            evaluator_id="evaluator-1",
+            rubric_version="v1",
             extraction_accuracy=4,
             extraction_completeness=3,
             evidence_traceability=5,
@@ -155,7 +155,7 @@ class ResearchExportTests(unittest.TestCase):
         response = main.save_run_result_record(self.run.id, body, self.session)
         self.assertEqual(set(response["saved_stages"]), {"extraction", "organization", "synthesis"})
         rows = self.session.query(EvaluationRecord).filter_by(
-            run_id=self.run.id, evaluator_id="researcher", rubric_version="rubric-v1"
+            run_id=self.run.id, evaluator_id="evaluator-1", rubric_version="v1"
         ).all()
         self.assertEqual(len(rows), 3)
         updated = build_run_summary(self.session, self.run)
@@ -165,8 +165,8 @@ class ResearchExportTests(unittest.TestCase):
         self.run.status = "running"
         self.session.commit()
         body = RunResultRecordCreate(
-            evaluator_id="researcher",
-            rubric_version="rubric-v1",
+            evaluator_id="evaluator-1",
+            rubric_version="v1",
             synthesis_quality=4,
         )
         with self.assertRaises(HTTPException) as context:
