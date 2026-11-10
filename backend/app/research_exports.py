@@ -128,27 +128,19 @@ def build_run_summary(db: Session, run: Run) -> dict:
         "corpus_paper_count": len(paper_ids),
         "corpus_fingerprint_sha256": run.settings.get("source_snapshot_hash", ""),
         "extraction_accuracy_mean_1_to_5": _mean_score(
-            evaluations, "extraction",
-            ("factual_accuracy", "accuracy", "semantic_accuracy"),
+            evaluations, "extraction", ("factual_accuracy",)
         ),
-        # This is a field-presence proxy, not semantic accuracy/completeness.
-        "extraction_field_presence_rate_percent": (
-            round(float(field_presence) * 100, 2)
-            if field_presence is not None else None
+        "extraction_completeness_score_mean_1_to_5": _mean_score(
+            evaluations, "extraction", ("extraction_completeness",)
         ),
         "evidence_traceability_mean_1_to_5": _mean_score(
-            evaluations, "extraction",
-            ("evidence_support", "evidence_traceability", "evidence_fidelity", "source_fidelity"),
+            evaluations, "extraction", ("evidence_support",)
         ),
         "organization_quality_mean_1_to_5": _mean_score(
-            evaluations, "organization",
-            ("overall_quality", "organization_quality", "theme_quality",
-             "comparison_quality", "gap_identification"),
+            evaluations, "organization", ("organization_quality",)
         ),
         "literature_synthesis_quality_mean_1_to_5": _mean_score(
-            evaluations, "synthesis",
-            ("overall_quality", "synthesis_quality", "factual_accuracy",
-             "critical_analysis", "academic_coherence", "citation_correctness"),
+            evaluations, "synthesis", ("synthesis_quality",)
         ),
         "human_review_time_minutes": (
             round(review_ms / 60000, 3) if review_ms is not None else None
