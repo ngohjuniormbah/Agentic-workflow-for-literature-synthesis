@@ -811,7 +811,7 @@ def execute_stage(db: Session, project: Project, run: Run, stage: str):
                 "prompt_sha256": usage.get("prompt_sha256"),
                 "provider": provider,
                 "model": model,
-                "prompt_version": "1.1" if stage in {"search", "extraction"} else "1.0",
+                "prompt_version": "1.2" if stage == "organization" else "1.1" if stage in {"search", "extraction"} else "1.0",
                 "temperature": run.settings.get("temperature", 0.0),
                 "request_duration_ms": usage.get("request_duration_ms"),
             }
