@@ -24,6 +24,7 @@ class FakeResponse:
 
 class FakeClient:
     calls: ClassVar[list] = []
+    response = FakeResponse()
 
     def __init__(self, **kwargs):
         pass
@@ -36,10 +37,39 @@ class FakeClient:
 
     def post(self, url, *, headers, json):
         self.calls.append((url, headers, json))
-        return FakeResponse()
+        return self.response
 
 
 class AgentAdapterTests(unittest.TestCase):
+    def test_json_answer_requests_native_json_mode(self):
+        class JsonResponse(FakeResponse):
+            def json(self):
+                return {
+                    "model": "mock/served-model",
+                    "choices": [{"message": {"content": '{"papers": []}'}}],
+                    "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+                }
+
+        settings = agents.settings
+        original = (settings.openai_api_key, settings.openai_model_id)
+        settings.openai_api_key = "mock-openai-key"
+        settings.openai_model_id = "mock/openai"
+        FakeClient.calls = []
+        previous_response = FakeClient.response
+        FakeClient.response = JsonResponse()
+        try:
+            with patch.object(agents.httpx, "Client", FakeClient):
+                payload, model, _metadata = agents.json_answer(
+                    "openai", "extract these papers", "Return a papers object"
+                )
+            _url, _headers, request = FakeClient.calls[-1]
+            self.assertEqual(request["response_format"], {"type": "json_object"})
+            self.assertEqual(payload, {"papers": []})
+            self.assertEqual(model, "mock/served-model")
+        finally:
+            FakeClient.response = previous_response
+            settings.openai_api_key, settings.openai_model_id = original
+
     def test_each_provider_uses_its_gateway_model_and_records_usage_and_latency(self):
         settings = agents.settings
         original = {
